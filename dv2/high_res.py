@@ -93,6 +93,8 @@ class PCA(nn.Module):
         return torch.matmul(Y, self.components_) + self.mean_
 
 
+# TODO: replace on set of loops by placing all masks into one kernel
+# also only PCA *after* aggregating rather than before - as post processing step
 class HighResDV2(nn.Module):
     def __init__(
         self,
@@ -122,7 +124,7 @@ class HighResDV2(nn.Module):
         out_masks: List[torch.Tensor] = []
         for i in range(9):
             # We need (out_ch, in_ch, h, w) for our weights dimension
-            zero_mask = torch.zeros((3, 3, 3, 3))
+            zero_mask = torch.zeros((3, 1, 3, 3))
             if pattern == "Neumann" and i % 2 == 1:
                 zero_mask[:, :, i // 3, i % 3] = 1
                 out_masks.append(zero_mask)
@@ -139,12 +141,15 @@ class HighResDV2(nn.Module):
                 padded: torch.Tensor = F.pad(
                     x.unsqueeze(0), (s, s, s, s), mode="circular"
                 )
-                shifted_img = F.conv2d(padded, m, stride=1, dilation=s)
+                shifted_img = F.conv2d(
+                    padded, m, stride=1, dilation=s, groups=3
+                )  # groups=3
                 img_list.append(shifted_img)
         img_batch = torch.cat(img_list)
         return img_batch
 
     def pca(self, f: torch.Tensor, norm: bool = False) -> torch.Tensor:
+        # TODO: test if pytorhc's batched implementation would work better?
         # Use pytorch's PCA on x to get first k components. Data is not reshaped.
         projection = self.PCA.fit_transform(f)
         if norm:
@@ -159,23 +164,31 @@ class HighResDV2(nn.Module):
         # Summand variable here to be memory efficient
         out_feature_img: torch.Tensor = torch.zeros(1, c, h, w, device=x.device)
         feat_idx: int = 0
+        # TODO: make sure this reverse ordering works for moore neighbourhoods
         for m in self.masks[::-1]:
             for s in self.shifts:
                 feat_patch_flat = feature_batch[feat_idx]
-                reduced_dim_flat = self.pca(feat_patch_flat)
+                # should I PCA before averaging or after?
+                if self.n_components < 1:
+                    reduced_dim_flat = feat_patch_flat
+                else:
+                    reduced_dim_flat = self.pca(feat_patch_flat)
                 feat_patch = reduced_dim_flat.reshape((PATCH_H, PATCH_W, c))
                 feat_img: torch.Tensor = torch.kron(
                     feat_patch, torch.ones((14, 14, 1), device=x.device)
                 )
                 full_size_tensor = feat_img.permute((2, 0, 1))
+                # TODO: can i replace the kron with an interpolate
+                # and/or can i get rid of all these resizes
                 # feat_img: torch.Tensor = F.interpolate(feat_patch, size=(h, w))
                 padded = F.pad(
                     full_size_tensor.unsqueeze(0), (s, s, s, s), mode="circular"
                 )
                 spatial_mask = m[0, 0, :, :]
                 channel_mask = spatial_mask.unsqueeze(0).unsqueeze(0)
-                # n_components channel in and out
-                channel_mask = channel_mask.repeat(c, c, 1, 1)
+                # we want a depthwise convolution here i.e each bit of the input gets
+                # its own filter and mapped to its own output channel
+                channel_mask = channel_mask.repeat(c, 1, 1, 1)
                 unshifted = F.conv2d(
                     padded, channel_mask, stride=1, dilation=s, groups=c
                 )
