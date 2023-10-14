@@ -163,3 +163,4 @@ cython_debug/
 *dinov2/*
 *.venv*
 *.vscode*
+*plots*
