@@ -134,8 +134,13 @@ class HighResDV2(nn.Module):
         return mean
 
     @torch.no_grad()
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        if self.dtype != torch.float32:  # cast (i.e to f16)
+            x = x.type(self.dtype)
         img_batch = self.get_shifted_img_batch(x)
+
         features_batch = self.low_res_features(img_batch)
+        low_res_features = self.low_res_features(x.unsqueeze(0))
+
         upsampled_unshifted = self.rescale_unshift_features(features_batch, x)
-        return upsampled_unshifted
+        return upsampled_unshifted, low_res_features
