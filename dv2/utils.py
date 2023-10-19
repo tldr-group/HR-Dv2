@@ -101,3 +101,25 @@ def normalise_pca_img(pca_img: np.ndarray) -> np.ndarray:
         mean, std = np.mean(c), np.std(c)
         out[:, :, i] = (c - mean) / std
     return out
+
+
+def threshold_pca(
+    features: np.ndarray,
+    pca: np.ndarray,
+    threshold: float,
+    greater_than: bool,
+    norm: bool = False,
+) -> Tuple[np.ndarray, np.ndarray]:
+    if norm:
+        pca = normalise_pca(pca)
+
+    fg_pca: np.ndarray
+    fg_mask: np.ndarray
+    if greater_than is True:
+        fg_pca = np.where(pca[:, 0] > threshold)
+        fg_mask = np.where(pca[:, 0] > threshold, 1, 0)
+    else:
+        fg_pca = np.where(pca[:, 0] < threshold)
+        fg_mask = np.where(pca[:, 0] < threshold, 1, 0)
+    fg_features: np.ndarray = features[fg_pca]
+    return fg_features, fg_pca, fg_mask
