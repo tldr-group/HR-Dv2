@@ -166,3 +166,4 @@ cython_debug/
 *plots*
 *.kra*
 *dv2/out*
+*d3_old*
