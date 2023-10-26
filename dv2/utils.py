@@ -3,6 +3,7 @@ import torchvision.transforms as transforms
 from PIL import Image
 import numpy as np
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import normalize
 
 from skimage.filters.rank import entropy
 from skimage.morphology import disk
@@ -34,6 +35,32 @@ unnormalize = transforms.Normalize(
     mean=(-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225),
     std=(1 / 0.229, 1 / 0.224, 1 / 0.225),
 )
+
+
+def centre_crop(crop_h: int, crop_w: int, patch_size: int = 14) -> transforms.Compose:
+    transform = transforms.Compose(
+        [
+            transforms.CenterCrop((crop_h, crop_w)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+        ]
+    )
+    return transform
+
+
+def closest_crop(h: int, w: int, patch_size: int = 14) -> transforms.Compose:
+    sub_h: int = h % patch_size
+    sub_w: int = w % patch_size
+    new_h, new_w = h - sub_h, w - sub_w
+    transform = transforms.Compose(
+        [
+            transforms.CenterCrop((new_h, new_w)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+        ]
+    )
+    return transform
+
 
 to_img = transforms.ToPILImage()
 
@@ -84,7 +111,11 @@ def rescale_pca(pca: np.ndarray) -> np.ndarray:
 
 
 def normalise_pca(pca: np.ndarray) -> np.ndarray:
-    # normalize each component of the pca individually
+    return normalize(pca)
+
+
+def standardise_pca(pca: np.ndarray) -> np.ndarray:
+    # standardize each component of the pca individually
     out = np.zeros_like(pca)
     n_components: int = pca.shape[-1]
     for i in range(n_components):
@@ -105,7 +136,7 @@ def rescale_pca_img(pca_img: np.ndarray) -> np.ndarray:
     return out
 
 
-def normalise_pca_img(pca_img: np.ndarray) -> np.ndarray:
+def standardise_pca_img(pca_img: np.ndarray) -> np.ndarray:
     # Assume H, W, C
     out = np.zeros_like(pca_img)
     n_components: int = pca_img.shape[-1]
