@@ -27,6 +27,19 @@ I propose a different solution (HR-Dv2):
 
 This has the same complexity as `DINOv2` as the stride $S$ is the same, and can be done in one forward pass with batching. The memory footprint is dominated by the cost of full-res feature map. It scales better than VE, but has its own drawbacks - namely it can be over-smooth or have grid artefacting. The interesting thing is that **this approach is compatible with the VE approach** by using a VE enhanced Dv2 alongside the pixel shifts (within memory constraints) - we can achieve some crisp $2$ or $4\times$ upsampling with VE then use HR-Dv2 for further upsampling. Also, we aren't just limited to pixel shifts as transformations in steps 1 and 4, we can use any invertible transformation (rotation, flipping, *etc.*)
 
+### TODO:
+- [ ] Rewrite the code to use any transformation (list of partial functions & their inverse) and integrate VE code, storing original Dv2 stride and positional encoding code to re-enable later
+- [ ] Break up utils into more meaningful files (plotting, converting *etc.*) and add docstrings
+- [ ] Comparison of the methods to resizing/convolving
+- [ ] Measure and plot memory footprints of each method
+- [ ] Visualise CLS/Attention maps via "x_norm_clstoken" key in forward features, also high-res them if cheap. Try use that for fg/bg detection
+- [ ] Test automated 1st PCA component/fg threshold finding using entropy per unit area 
+- [ ] Evaluation of foreground segmentation on Pascal VOC12, compare to DINO, upscaled Dv2
+- [ ] Test (& visualise) co-segmentation with clustering across shared (potentially PCA'd) feature space
+- [ ] Evaluation co-segmentation performance on Berkely UCSD Birds dataset, comparison to 'Deep ViT Features as Dense Visual Descriptors'
+- [ ] Integrate into SAMBA/trainable segmentation platform?
+- [ ] Find some suitable materials/cells DS?
+
 ## Links
 1) **DINOv2:** [[`Paper`](https://arxiv.org/abs/2304.07193)] [[`Code`](https://github.com/facebookresearch/dinov2/tree/main)]  [[`Project Page`](https://dinov2.metademolab.com/)]
 2) **ViT:** [[`Paper`](https://arxiv.org/abs/2010.11929)] [[`Code`](https://github.com/google-research/vision_transformer)]
