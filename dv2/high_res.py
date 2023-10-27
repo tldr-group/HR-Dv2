@@ -4,14 +4,12 @@ import torch.nn as nn
 from torch.nn.modules.utils import _pair
 import torch.nn.functional as F
 
-from dinov2.models.vision_transformer import DinoVisionTransformer
-from copy import deepcopy
 from types import MethodType
 from transform import iden_partial
 
 from functools import partial
 import math
-from typing import List, Literal, TypeAlias, Tuple, Callable
+from typing import List, Tuple, Callable
 
 
 # ==================== MODULE ====================
@@ -28,9 +26,7 @@ class HighResDV2(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.dinov2: DinoVisionTransformer = torch.hub.load(
-            "facebookresearch/dinov2", dino_name
-        )
+        self.dinov2: nn.Module = torch.hub.load("facebookresearch/dinov2", dino_name)
         self.dinov2.eval()
 
         # Get params of Dv2 model and store references to original settings & methods
@@ -126,9 +122,7 @@ class HighResDV2(nn.Module):
 
         return interpolate_pos_encoding
 
-    def set_model_stride(
-        self, dino_model: DinoVisionTransformer, stride_l: int
-    ) -> None:
+    def set_model_stride(self, dino_model: nn.Module, stride_l: int) -> None:
         """Create new positional encoding interpolation method for $dino_model with
         supplied $stride, and set the stride of the patch embedding projection conv2D
         to $stride.
@@ -216,7 +210,7 @@ class HighResDV2(nn.Module):
         if stride_l > 0:  # if we don't want to change stride. Assumes square stride
             self.set_model_stride(self.dinov2, stride_l)
 
-        feat_dict = self.dinov2.forward_features(x)
+        feat_dict = self.dinov2.forward_features(x)  # type: ignore
         feat_tensor: torch.Tensor = feat_dict["x_norm_patchtokens"]
         if self.dtype != torch.float32:
             feat_tensor = feat_tensor.to(self.dtype)

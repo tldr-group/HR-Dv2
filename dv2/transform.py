@@ -9,6 +9,7 @@ from typing import List, Literal, TypeAlias, Tuple, Callable
 PartialTrs: TypeAlias = List[partial]
 
 
+# ==================== MODEL TRANSFORMS ====================
 def compute_shift_directions(
     pattern: Literal["Neumann", "Moore"]
 ) -> List[Tuple[int, int]]:
@@ -59,8 +60,12 @@ def iden(x: torch.Tensor) -> torch.Tensor:
 
 
 iden_partial = partial(iden)
-# shift = (shift_dir[0] * shift_dist, shift_dir[1] * shift_dist)
-# old shift fn: torch.roll(x, shift, dims=(-2, -1))
+
+# TODO: add rotations and a general formula for composing the transfroms, will probs be
+# a combination of itertools premutations and wrapptes around partial functions
+# i.e will want to compute all shifts then all flips of shifts
+# having many transforms will necessitate a redesign of high res to have the option
+# to be sequential
 
 
 # ==================== PYTORCH INPUT TRANSFORMS ====================
