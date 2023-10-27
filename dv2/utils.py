@@ -1,6 +1,4 @@
-import torch
-import torchvision.transforms as transforms
-from PIL import Image
+# TODO: rename somehtng like 'post-processing'
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import normalize
@@ -9,86 +7,6 @@ from skimage.filters.rank import entropy
 from skimage.morphology import disk
 
 from typing import Tuple, List
-
-
-def get_input_transform(resize_dim: int, crop_dim: int) -> transforms.Compose:
-    transform = transforms.Compose(
-        [
-            transforms.Resize(resize_dim),
-            transforms.CenterCrop(crop_dim),
-            transforms.ToTensor(),
-            # transforms.Normalize(mean=0.5, std=0.2),
-            transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
-        ]
-    )
-    return transform
-
-
-to_norm_tensor = transforms.Compose(
-    [
-        transforms.ToTensor(),
-        transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
-    ]
-)
-
-unnormalize = transforms.Normalize(
-    mean=(-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225),
-    std=(1 / 0.229, 1 / 0.224, 1 / 0.225),
-)
-
-
-def centre_crop(crop_h: int, crop_w: int, patch_size: int = 14) -> transforms.Compose:
-    transform = transforms.Compose(
-        [
-            transforms.CenterCrop((crop_h, crop_w)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
-        ]
-    )
-    return transform
-
-
-def closest_crop(h: int, w: int, patch_size: int = 14) -> transforms.Compose:
-    sub_h: int = h % patch_size
-    sub_w: int = w % patch_size
-    new_h, new_w = h - sub_h, w - sub_w
-    transform = transforms.Compose(
-        [
-            transforms.CenterCrop((new_h, new_w)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
-        ]
-    )
-    return transform
-
-
-to_img = transforms.ToPILImage()
-
-
-def load_image(
-    path: str, transform: transforms.Compose
-) -> Tuple[torch.Tensor, Image.Image]:
-    # Load image with PIL, convert to tensor by applying $transform, and invert transform to get display image
-    image = Image.open(path).convert("RGB")
-    tensor = transform(image)
-    transformed_img = to_img(unnormalize(tensor))
-    return tensor, transformed_img
-
-
-def to_numpy(x: torch.Tensor, batched: bool = True) -> np.ndarray:
-    if batched:
-        x = x.squeeze(0)
-    return x.detach().cpu().numpy()
-
-
-def flatten(
-    x: torch.Tensor | np.ndarray, h: int, w: int, c: int, convert: bool = False
-) -> np.ndarray:
-    if type(x) == torch.Tensor:
-        x = to_numpy(x)
-    x = x.reshape((c, h * w))
-    x = x.T
-    return x
 
 
 def do_single_pca(arr: np.ndarray, n_components: int = 3) -> np.ndarray:
@@ -153,7 +71,7 @@ def threshold_pca(
     threshold: float,
     greater_than: bool,
     norm: bool = False,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     if norm:
         pca = normalise_pca(pca)
 
@@ -193,6 +111,6 @@ def get_best_mask(
 
     threshold_1_entropy = entropy_per_area(mask, entropy_img)
     threshold_2_entropy = entropy_per_area(~mask, entropy_img)
-    best_mask_idx: int = np.argmax([threshold_1_entropy, threshold_2_entropy])
+    best_mask_idx: int = int(np.argmax([threshold_1_entropy, threshold_2_entropy]))
     best_mask = masks[best_mask_idx]
     return best_mask, best_mask_idx
