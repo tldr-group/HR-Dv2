@@ -140,6 +140,7 @@ class HighResDV2(nn.Module):
             return  # early return as nothing to be done
         self.stride = new_stride_pair
         dino_model.patch_embed.proj.stride = new_stride_pair  # type: ignore
+        print(f"Setting stride to ({stride_l},{stride_l})")
 
         if new_stride_pair == self.original_stride:
             # if resetting to original, return original method
@@ -209,7 +210,6 @@ class HighResDV2(nn.Module):
 
         if stride_l > 0:  # if we don't want to change stride. Assumes square stride
             self.set_model_stride(self.dinov2, stride_l)
-
         feat_dict = self.dinov2.forward_features(x)  # type: ignore
         feat_tensor: torch.Tensor = feat_dict["x_norm_patchtokens"]
         if self.dtype != torch.float32:
@@ -290,9 +290,60 @@ class HighResDV2(nn.Module):
         upsampled_features = self.invert_transforms(features_batch, x)
         return upsampled_features, low_res_features
 
-    # TODO: add support for sequential featurising (i.e img -> tr -> features -> inv) for each tr
-    # will be more memory efficient as don't need to store batch of all tr imgs but take more time
-    # ideally calls to Dv2 wil be fast enough that it won't matter
+    @torch.no_grad()
+    def forward_sequential(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Perform transform -> featurise -> upscale -> inverse -> average forward pass
+        sequentially, performing more calls to DINOv2 but reducing the memory overhead.
+
+        :param x: unbatched image tensor
+        :type x: torch.Tensor
+        :return: tuple of low-res Dv2 features and our upsample high-res Dv2 features
+        :rtype: Tuple[torch.Tensor, torch.Tensor]
+        """
+        x.requires_grad = self.track_grad
+        if self.dtype != torch.float32:  # cast (i.e to f16)
+            x = x.type(self.dtype)
+        img_batch = self.get_transformed_input_batch(x, self.transforms)
+        temp_stride = self.stride
+        low_res_features = self.get_dv2_features(
+            x.unsqueeze(0), self.original_stride[0]
+        )
+
+        _, img_h, img_w = x.shape
+        c = self.feat_dim
+        stride_l = temp_stride[0]
+        n_patch_w: int = 1 + (img_w - self.original_patch_size) // stride_l
+        n_patch_h: int = 1 + (img_h - self.original_patch_size) // stride_l
+
+        out_feature_img: torch.Tensor = torch.zeros(
+            1,
+            c,
+            img_h,
+            img_w,
+            device=x.device,
+            dtype=self.dtype,
+            requires_grad=self.track_grad,
+        )
+
+        N_transforms = len(self.transforms)
+        for i in range(N_transforms):
+            transformed_img = img_batch[i].unsqueeze(0)
+            features = self.get_dv2_features(transformed_img, temp_stride[0])
+            features = features.squeeze(0)
+            feat_patch = features.view((n_patch_h, n_patch_w, c))
+            permuted = feat_patch.permute((2, 0, 1)).unsqueeze(0)
+
+            full_size = F.interpolate(
+                permuted,
+                (img_h, img_w),
+                mode="nearest-exact",
+            )
+            inv_transform = self.inverse_transforms[i]
+            inverted: torch.Tensor = inv_transform(full_size)
+            out_feature_img += inverted
+
+        mean = out_feature_img / N_transforms
+        return mean, low_res_features
 
     @torch.no_grad()
     def pca(self, f: torch.Tensor, k: int) -> torch.Tensor:
@@ -309,50 +360,3 @@ class HighResDV2(nn.Module):
         U, S, V = torch.pca_lowrank(f, q=k)
         projection = torch.matmul(f, V)
         return projection
-
-        """
-        
-
-            @torch.no_grad()
-    def rescale_unshift_features(
-        self, feature_batch: torch.Tensor, x: torch.Tensor
-    ) -> torch.Tensor:
-        _, h, w = x.shape
-        c = self.feat_dim if self.pca_each is False else self.pca_k
-        n_patch_h, n_patch_w = h // self.patch_size, w // self.patch_size
-        n_samples = math.floor(math.sqrt(feature_batch.shape[1]))
-        n_patch_h, n_patch_w = n_samples, n_samples
-
-        # Summand variable here to be memory efficient
-        out_feature_img: torch.Tensor = torch.zeros(  # type: ignore
-            1, c, h, w, dtype=self.dtype, device=x.device, requires_grad=self.track_grad
-        )  # weird stuff because the shape isn't a tuple
-
-        feat_idx: int = 0
-        for shift_dir in self.shift_directions:
-            for shift_dist in self.shift_distances:
-                feat_patch_flat = feature_batch[feat_idx]
-                if self.pca_each:
-                    feat_patch_flat = self.pca(feat_patch_flat, self.pca_k)
-                # reshape or view - view possibly more memory efficient
-                feat_patch = feat_patch_flat.view((n_patch_h, n_patch_w, c))
-                permuted = feat_patch.permute((2, 0, 1)).unsqueeze(0)
-
-                full_size_tensor = F.interpolate(
-                    permuted,
-                    (h, w),
-                    mode="nearest-exact",  # scale_factor=self.patch_size
-                )
-
-                rev_shift = (
-                    -1 * shift_dir[0] * shift_dist,
-                    -1 * shift_dir[1] * shift_dist,
-                )
-                unshifted = torch.roll(full_size_tensor, rev_shift, dims=(-2, -1))
-                out_feature_img += unshifted
-                feat_idx += 1
-
-        n_imgs: int = feature_batch.shape[0]
-        mean = out_feature_img / n_imgs
-        return mean
-        """
