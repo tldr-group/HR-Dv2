@@ -61,6 +61,28 @@ def iden(x: torch.Tensor) -> torch.Tensor:
 
 iden_partial = partial(iden)
 
+
+def get_flip_transforms() -> Tuple[PartialTrs, PartialTrs]:
+    def flip_arg_rev(dims: Tuple[int, ...], x: torch.Tensor) -> torch.Tensor:
+        return torch.flip(x, dims)
+
+    horizontal_flip_partial = partial(flip_arg_rev, (-1,))
+    vertical_flip_partial = partial(flip_arg_rev, (-2,))
+    transforms = [
+        iden_partial,
+        horizontal_flip_partial,
+        iden_partial,
+        vertical_flip_partial,
+    ]
+    inv_tranforms = [
+        iden_partial,
+        horizontal_flip_partial,
+        iden_partial,
+        vertical_flip_partial,
+    ]
+    return transforms, inv_tranforms
+
+
 # TODO: add rotations and a general formula for composing the transfroms, will probs be
 # a combination of itertools premutations and wrapptes around partial functions
 # i.e will want to compute all shifts then all flips of shifts
@@ -146,4 +168,4 @@ def flatten(
         x = to_numpy(x)
     x = x.reshape((c, h * w))
     x = x.T
-    return x
+    return x  # type: ignore
