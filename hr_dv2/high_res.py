@@ -5,7 +5,7 @@ from torch.nn.modules.utils import _pair
 import torch.nn.functional as F
 
 from types import MethodType
-from transform import iden_partial
+from .transform import iden_partial
 
 from functools import partial
 import math

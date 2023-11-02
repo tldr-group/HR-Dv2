@@ -30,7 +30,7 @@ This has the same complexity as `DINOv2` as the stride $S$ is the same, and can 
 ### TODO:
 - [x] Rewrite the code to use any transformation (list of partial functions & their inverse) and integrate VE code, storing original Dv2 stride and positional encoding code to re-enable later
 - [x] Break up utils into more meaningful files (plotting, converting *etc.*) and add docstrings
-- [ ] Rewrite in module style, create requirements.txt, install locally, move notebooks to separate folder
+- [x] Rewrite in module style, create requirements.txt, install locally, move notebooks to separate folder
 - [ ] Try using flip transforms to ameliorate VE artefacting
 - [ ] High-res video (maybe try on big PC)
 - [ ] Integrate into SAMBA/trainable segmentation platform?
