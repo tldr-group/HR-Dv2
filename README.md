@@ -31,10 +31,10 @@ This has the same complexity as `DINOv2` as the stride $S$ is the same, and can 
 - [x] Rewrite the code to use any transformation (list of partial functions & their inverse) and integrate VE code, storing original Dv2 stride and positional encoding code to re-enable later
 - [x] Break up utils into more meaningful files (plotting, converting *etc.*) and add docstrings
 - [x] Rewrite in module style, create requirements.txt, install locally, move notebooks to separate folder
-- [ ] Try using flip transforms to ameliorate VE artefacting
-- [ ] High-res video (maybe try on big PC)
-- [ ] Integrate into SAMBA/trainable segmentation platform?
+- [x] Try using flip transforms to ameliorate VE artefacting
 - [ ] Comparison of the methods to resizing/convolving - visually and MSE wise
+- [ ] Integrate into SAMBA/trainable segmentation platform?
+- [ ] High-res video (maybe try on big PC)
 - [ ] Measure and plot memory footprints of each method
 - [ ] Visualise CLS/Attention maps via "x_norm_clstoken" key in forward features, also high-res them if cheap. Try use that for fg/bg detection
 - [ ] Test automated 1st PCA component/fg threshold finding using entropy per unit area 
