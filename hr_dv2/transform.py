@@ -1,5 +1,6 @@
 import torch
 import torchvision.transforms as transforms
+import torch.nn.functional as F
 
 from functools import partial
 from PIL import Image
@@ -55,7 +56,40 @@ def get_shift_transforms(
     return transforms, inv_transforms
 
 
+def get_shift_transforms_conv(
+    dists: List[int], pattern: Literal["Neumann", "Moore"]
+) -> Tuple[PartialTrs, PartialTrs]:
+    # don't think convs is causing a speed increase
+    transforms: PartialTrs = []
+    inv_transforms: PartialTrs = []
+    shifts = compute_shift_directions(pattern)
+
+    def conv_arg_rev(d: int, shift: Tuple[int, int], x: torch.Tensor) -> torch.Tensor:
+        if len(x.shape) == 3:  # batch
+            x = x.unsqueeze(0)
+        sx, sy = shift
+        b, c, h, w = x.shape
+        c = int(c)
+        mask = torch.zeros((c, 1, 3, 3), device=x.device)
+        mask[:, :, 1 + sx, 1 + sy] = 1
+        padded: torch.Tensor = F.pad(x, (d, d, d, d), mode="circular")
+        shifted = F.conv2d(padded, mask, stride=1, dilation=d, groups=c)
+        return shifted
+
+    for d in dists:
+        for s in shifts:
+            inv_shift = (-s[0], -s[1])
+            tr = partial(conv_arg_rev, d, s)
+            inv_tr = partial(conv_arg_rev, d, inv_shift)
+            transforms.append(tr)
+            inv_transforms.append(inv_tr)
+
+    return transforms, inv_transforms
+
+
 def iden(x: torch.Tensor) -> torch.Tensor:
+    if len(x.shape) == 3:  # batch
+        x = x.unsqueeze(0)
     return x
 
 
@@ -64,7 +98,11 @@ iden_partial = partial(iden)
 
 def get_flip_transforms() -> Tuple[PartialTrs, PartialTrs]:
     def flip_arg_rev(dims: Tuple[int, ...], x: torch.Tensor) -> torch.Tensor:
+        if len(x.shape) == 3:  # batch
+            x = x.unsqueeze(0)
         return torch.flip(x, dims)
+
+    # np.flip would be faster apparently
 
     horizontal_flip_partial = partial(flip_arg_rev, (-1,))
     vertical_flip_partial = partial(flip_arg_rev, (-2,))

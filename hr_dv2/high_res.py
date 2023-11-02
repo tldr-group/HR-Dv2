@@ -189,7 +189,12 @@ class HighResDV2(nn.Module):
         for transform in transforms:
             transformed_img: torch.Tensor = transform(x)
             img_list.append(transformed_img)
-        img_batch = torch.stack(img_list)
+
+        if len(img_list[0].shape) == 3:  # if c, h, w then stack list
+            img_batch = torch.stack(img_list)
+        else:  # if b, c, h, w then cat
+            img_batch = torch.cat(img_list)
+
         if self.dtype != torch.float32:
             img_batch = img_batch.to(self.dtype)
         return img_batch
@@ -305,6 +310,7 @@ class HighResDV2(nn.Module):
             x = x.type(self.dtype)
         img_batch = self.get_transformed_input_batch(x, self.transforms)
         temp_stride = self.stride
+
         low_res_features = self.get_dv2_features(
             x.unsqueeze(0), self.original_stride[0]
         )
