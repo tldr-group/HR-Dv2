@@ -9,7 +9,11 @@ from .transform import iden_partial
 
 from functools import partial
 import math
-from typing import List, Tuple, Callable
+from typing import List, Tuple, Callable, TypeAlias, Literal
+
+Interpolation: TypeAlias = Literal[
+    "nearest", "linear", "bilinear", "bicubic", "trilinear", "area", "nearest-exact"
+]
 
 
 # ==================== MODULE ====================
@@ -43,6 +47,7 @@ class HighResDV2(nn.Module):
         self.transforms: List[partial] = []
         self.inverse_transforms: List[partial] = []
         self.sequential = sequential
+        self.interpolation_mode: Interpolation = "nearest-exact"
 
         # If we want to save memory, change to float16
         self.dtype = dtype
@@ -263,7 +268,7 @@ class HighResDV2(nn.Module):
             full_size = F.interpolate(
                 permuted,
                 (img_h, img_w),
-                mode="nearest-exact",
+                mode=self.interpolation_mode,
             )
             inverted: torch.Tensor = inv_transform(full_size)
             out_feature_img += inverted
@@ -342,7 +347,7 @@ class HighResDV2(nn.Module):
             full_size = F.interpolate(
                 permuted,
                 (img_h, img_w),
-                mode="nearest-exact",
+                mode=self.interpolation_mode,
             )
             inv_transform = self.inverse_transforms[i]
             inverted: torch.Tensor = inv_transform(full_size)
