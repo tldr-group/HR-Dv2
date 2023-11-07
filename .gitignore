@@ -167,3 +167,4 @@ cython_debug/
 *.kra*
 *notebooks/out*
 *d3_old*
+*.mp4
