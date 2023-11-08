@@ -127,7 +127,9 @@ class HighResDV2(nn.Module):
 
         return interpolate_pos_encoding
 
-    def set_model_stride(self, dino_model: nn.Module, stride_l: int) -> None:
+    def set_model_stride(
+        self, dino_model: nn.Module, stride_l: int, verbose: bool = False
+    ) -> None:
         """Create new positional encoding interpolation method for $dino_model with
         supplied $stride, and set the stride of the patch embedding projection conv2D
         to $stride.
@@ -145,7 +147,8 @@ class HighResDV2(nn.Module):
             return  # early return as nothing to be done
         self.stride = new_stride_pair
         dino_model.patch_embed.proj.stride = new_stride_pair  # type: ignore
-        print(f"Setting stride to ({stride_l},{stride_l})")
+        if verbose:
+            print(f"Setting stride to ({stride_l},{stride_l})")
 
         if new_stride_pair == self.original_stride:
             # if resetting to original, return original method
