@@ -168,3 +168,4 @@ cython_debug/
 *notebooks/out*
 *d3_old*
 *.mp4
+*frame*
