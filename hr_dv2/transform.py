@@ -3,6 +3,7 @@ import torchvision.transforms as transforms
 import torch.nn.functional as F
 
 from functools import partial
+from itertools import product
 from PIL import Image
 import numpy as np
 from typing import List, Literal, TypeAlias, Tuple, Callable
@@ -125,7 +126,29 @@ def get_flip_transforms() -> Tuple[PartialTrs, PartialTrs]:
 # a combination of itertools premutations and wrapptes around partial functions
 # i.e will want to compute all shifts then all flips of shifts
 # having many transforms will necessitate a redesign of high res to have the option
-# to be sequential
+# to be sequential\
+
+
+def combine_transforms(
+    fwd_1: PartialTrs, fwd_2: PartialTrs, inv_1: PartialTrs, inv_2: PartialTrs
+) -> Tuple[PartialTrs, PartialTrs]:
+    def combined(tr_1, tr_2, x: torch.Tensor) -> torch.Tensor:
+        return tr_2(tr_1(x))
+
+    fwd_pairs = product(fwd_1, fwd_2)
+    inv_pairs = product(inv_1, inv_2)  # no guarantee these are in order
+
+    fwd: PartialTrs = []
+    inv: PartialTrs = []
+    for pair in fwd_pairs:
+        f1, f2 = pair
+        partial_combined = partial(combined, f1, f2)
+        fwd.append(partial_combined)
+    for pair in inv_pairs:
+        i1, i2 = pair
+        partial_combined = partial(combined, i1, i2)
+        inv.append(partial_combined)
+    return (fwd, inv)
 
 
 # ==================== PYTORCH INPUT TRANSFORMS ====================
