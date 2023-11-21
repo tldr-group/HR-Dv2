@@ -42,8 +42,9 @@ pip install -e .
 - [x] Rewrite in module style, create requirements.txt, install locally, move notebooks to separate folder
 - [x] Try using flip transforms to ameliorate VE artefacting
 - [x] Comparison of the methods to resizing/convolving - visually and MSE wise
-- [ ] Integrate into SAMBA/trainable segmentation platform?
-- [ ] High-res video (maybe try on big PC)
+- [x] Integrate into SAMBA/trainable segmentation platform?
+- [x] High-res video (maybe try on big PC)
+- [ ] Try combining classical and NN features?
 - [ ] Measure and plot memory footprints of each method
 - [ ] Visualise CLS/Attention maps via "x_norm_clstoken" key in forward features, also high-res them if cheap. Try use that for fg/bg detection
 - [ ] Test automated 1st PCA component/fg threshold finding using entropy per unit area 
