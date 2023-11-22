@@ -44,14 +44,17 @@ pip install -e .
 - [x] Comparison of the methods to resizing/convolving - visually and MSE wise
 - [x] Integrate into SAMBA/trainable segmentation platform?
 - [x] High-res video (maybe try on big PC)
+- [x] Add rotation transforms, test in microstructure
+- [ ] Add option to use different ViTs (like DINO or SAM)
+- [ ] Visualise CLS/Attention maps via "x_norm_clstoken" key in forward features, also high-res them if cheap. Try use that for fg/bg detection
 - [ ] Try combining classical and NN features?
 - [ ] Measure and plot memory footprints of each method
-- [ ] Visualise CLS/Attention maps via "x_norm_clstoken" key in forward features, also high-res them if cheap. Try use that for fg/bg detection
 - [ ] Test automated 1st PCA component/fg threshold finding using entropy per unit area 
 - [ ] Evaluation of foreground segmentation on Pascal VOC12, compare to DINO, upscaled Dv2
 - [ ] Test (& visualise) co-segmentation with clustering across shared (potentially PCA'd) feature space
 - [ ] Evaluation co-segmentation performance on Berkely UCSD Birds dataset, comparison to 'Deep ViT Features as Dense Visual Descriptors'
 - [ ] Find some suitable materials/cells DS?
+
 
 ## Links
 1) **DINOv2:** [[`Paper`](https://arxiv.org/abs/2304.07193)] [[`Code`](https://github.com/facebookresearch/dinov2/tree/main)]  [[`Project Page`](https://dinov2.metademolab.com/)]

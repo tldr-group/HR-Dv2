@@ -65,6 +65,13 @@ def standardise_pca_img(pca_img: np.ndarray) -> np.ndarray:
     return out
 
 
+def standardize_img(x: np.ndarray) -> np.ndarray:
+    y = (x - np.mean(x, axis=-1, keepdims=True)) / np.std(
+        x, axis=-1, ddof=0, keepdims=True
+    )
+    return y
+
+
 def threshold_pca(
     features: np.ndarray,
     pca: np.ndarray,
