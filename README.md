@@ -46,14 +46,15 @@ pip install -e .
 - [x] High-res video (maybe try on big PC)
 - [x] Add rotation transforms, test in microstructure
 - [ ] Add option to use different ViTs (like DINO or SAM)
-- [ ] Visualise CLS/Attention maps via "x_norm_clstoken" key in forward features, also high-res them if cheap. Try use that for fg/bg detection
+- [x] Visualise CLS/Attention maps, also high-res them if cheap. Try use that for fg/bg detection
 - [ ] Try combining classical and NN features?
 - [ ] Measure and plot memory footprints of each method
 - [ ] Test automated 1st PCA component/fg threshold finding using entropy per unit area 
-- [ ] Evaluation of foreground segmentation on Pascal VOC12, compare to DINO, upscaled Dv2
+- [ ] Test semantic segmentation via PCA -> NMF/kmeans of foreground features
 - [ ] Test (& visualise) co-segmentation with clustering across shared (potentially PCA'd) feature space
+- [ ] Evaluation of foreground segmentation on Pascal VOC12, compare to DINO, upscaled Dv2
+- [ ] Evalutation of semantic segmentation on Pascal VOC12, compare w/ 'Deep spectral Methods ...' 
 - [ ] Evaluation co-segmentation performance on Berkely UCSD Birds dataset, comparison to 'Deep ViT Features as Dense Visual Descriptors'
-- [ ] Find some suitable materials/cells DS?
 
 
 ## Links
