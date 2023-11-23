@@ -4,6 +4,8 @@ import torch.nn as nn
 from torch.nn.modules.utils import _pair
 import torch.nn.functional as F
 
+from .patch import Patch
+
 from types import MethodType
 from .transform import iden_partial
 
@@ -14,6 +16,7 @@ from typing import List, Tuple, Callable, TypeAlias, Literal
 Interpolation: TypeAlias = Literal[
     "nearest", "linear", "bilinear", "bicubic", "trilinear", "area", "nearest-exact"
 ]
+AttentionOptions: TypeAlias = Literal["cls", "reg", "both", "none"]
 
 
 # ==================== MODULE ====================
@@ -40,6 +43,8 @@ class HighResDV2(nn.Module):
         # may need to deepcopy this instead of just referencing
         self.original_pos_enc = self.dinov2.interpolate_pos_encoding
         self.feat_dim: int = feat
+        self.n_heads: int = 6
+        self.n_register_tokens = 4
 
         self.stride = _pair(stride)
         self.set_model_stride(self.dinov2, stride)
@@ -55,6 +60,8 @@ class HighResDV2(nn.Module):
             self = self.to(dtype)
         self.track_grad = track_grad  # off by default to save memory
 
+        self.patch_last_block(self.dinov2)
+
     def get_model_params(self, dino_name: str) -> Tuple[int, int]:
         """Match a name like dinov2_vits14 / dinov2_vitg16_lc etc. to feature dim and patch size.
 
@@ -69,63 +76,6 @@ class HighResDV2(nn.Module):
         feat_dim_lookup = {"s": 384, "b": 768, "l": 1024, "g": 1536}
         feat_dim: int = feat_dim_lookup[arch]
         return feat_dim, patch_size
-
-    @staticmethod
-    def _fix_pos_enc(patch_size: int, stride_hw: Tuple[int, int]) -> Callable:
-        """Creates a method for position encoding interpolation, used to overwrite
-        the original method in the DINO/DINOv2 vision transformer.
-        Taken from https://github.com/ShirAmir/dino-vit-features/blob/main/extractor.py,
-        added some bits from the Dv2 code in.
-
-        :param patch_size: patch size of the model.
-        :type patch_size: int
-        :param stride_hw: A tuple containing the new height and width stride respectively.
-        :type Tuple[int, int]
-        :return: the interpolation method
-        :rtype: Callable
-        """
-
-        def interpolate_pos_encoding(
-            self, x: torch.Tensor, w: int, h: int
-        ) -> torch.Tensor:
-            previous_dtype = x.dtype
-            npatch = x.shape[1] - 1
-            N = self.pos_embed.shape[1] - 1
-            if npatch == N and w == h:
-                return self.pos_embed
-            pos_embed = self.pos_embed.float()
-            class_pos_embed = pos_embed[:, 0]
-            patch_pos_embed = pos_embed[:, 1:]
-            dim = x.shape[-1]
-            # compute number of tokens taking stride into account
-            w0: float = 1 + (w - patch_size) // stride_hw[1]
-            h0: float = 1 + (h - patch_size) // stride_hw[0]
-            assert (
-                w0 * h0 == npatch
-            ), f"""got wrong grid size for {h}x{w} with patch_size {patch_size} and
-            #                               stride {stride_hw} got {h0}x{w0}={h0 * w0} expecting {npatch}"""
-            # we add a small number to avoid floating point error in the interpolation
-            # see discussion at https://github.com/facebookresearch/dino/issues/8
-            w0, h0 = w0 + 0.1, h0 + 0.1
-            patch_pos_embed = F.interpolate(
-                patch_pos_embed.reshape(
-                    1, int(math.sqrt(N)), int(math.sqrt(N)), dim
-                ).permute(0, 3, 1, 2),
-                scale_factor=(w0 / math.sqrt(N), h0 / math.sqrt(N)),
-                mode="bicubic",
-                align_corners=False,
-                recompute_scale_factor=False,
-            )
-            assert (
-                int(w0) == patch_pos_embed.shape[-2]
-                and int(h0) == patch_pos_embed.shape[-1]
-            )
-            patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
-            return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1).to(
-                previous_dtype
-            )
-
-        return interpolate_pos_encoding
 
     def set_model_stride(
         self, dino_model: nn.Module, stride_l: int, verbose: bool = False
@@ -155,9 +105,23 @@ class HighResDV2(nn.Module):
             dino_model.interpolate_pos_encoding = self.original_pos_enc  # type: ignore
         else:
             dino_model.interpolate_pos_encoding = MethodType(  # type: ignore
-                HighResDV2._fix_pos_enc(self.original_patch_size, new_stride_pair),
+                Patch._fix_pos_enc(self.original_patch_size, new_stride_pair),
                 dino_model,
             )  # typed ignored as they can't type check reassigned methods (generally is poor practice)
+
+    def patch_last_block(self, dino_model: nn.Module) -> None:
+        """Patch the final block of the dino model to add attention return code.
+
+        :param dino_model: DINO or DINOv2 model
+        :type dino_model: nn.Module
+        """
+        final_block = dino_model.blocks[-1]  # type: ignore
+        attn_block = final_block.attn  # type: ignore
+        attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
+        final_block.forward = MethodType(Patch._fix_block_forward(), final_block)  # type: ignore
+        dino_model.get_last_self_attention = MethodType(  # type: ignore
+            Patch._add_forward_attn(), dino_model
+        )
 
     def get_n_patches(self, img_h: int, img_w: int) -> Tuple[int, int]:
         stride_l = self.stride[0]
@@ -211,7 +175,7 @@ class HighResDV2(nn.Module):
     def get_dv2_features(self, x: torch.Tensor, stride_l: int = -1) -> torch.Tensor:
         """Feed batched img tensor $x into DINOv2, optionally set stride and return features.
 
-        :param x: batched img tensor
+        :param x: batched img tensor, shape [B, C, H, W]
         :type x: torch.Tensor
         :param stride: desired stride/resolution for VE, defaults to -1
         :type stride: int, optional
@@ -230,6 +194,54 @@ class HighResDV2(nn.Module):
         return feat_tensor
 
     @torch.no_grad()
+    def get_dv2_attn(
+        self,
+        x: torch.Tensor,
+        stride_l: int = -1,
+        which: AttentionOptions = "cls",
+    ) -> torch.Tensor:
+        """Feed batched img tensor $x into DINOv2, optionally set stride and return features.
+
+        :param x: batched img tensor, shape [B, C, H, W]
+        :type x: torch.Tensor
+        :param stride: desired stride/resolution for VE, defaults to -1
+        :type stride: int, optional
+        :return: features extracted by DINOv2
+        :rtype: torch.Tensor
+        """
+        if self.dtype != torch.float32:
+            x = x.to(self.dtype)
+
+        if stride_l > 0:  # if we don't want to change stride. Assumes square stride
+            self.set_model_stride(self.dinov2, stride_l)
+        attention: torch.Tensor = self.dinov2.get_last_self_attention(x)  # type: ignore
+
+        # change this for ViTs
+        b, n_heads, n_tokens, _ = attention.shape
+        s0: int = 0
+        s1: int = 1
+        if which == "reg":
+            s0 = 1
+            s1 = 1 + self.n_register_tokens
+        elif which == "both":
+            s1 = 1 + self.n_register_tokens
+
+        # we use a list approach to ensure our we get correct order i.e that attention[:, 0:6, :, :]
+        # is the attention of 6 heads to cls/register token 0
+        attn_list = []
+        for i in range(s0, s1):
+            # attention tokens are packed in after the first token; the spatial tokens follow
+            token_attention = attention[:, :, i, 1 + self.n_register_tokens :].reshape(
+                b, n_heads, -1
+            )
+            attn_list.append(token_attention)
+        all_attention = torch.cat(attn_list, dim=1)
+        all_attention = torch.permute(all_attention, (0, 2, 1))
+        if self.dtype != torch.float32:
+            all_attention = all_attention.to(self.dtype)
+        return all_attention
+
+    @torch.no_grad()
     def invert_transforms(
         self, feature_batch: torch.Tensor, x: torch.Tensor
     ) -> torch.Tensor:
@@ -246,7 +258,8 @@ class HighResDV2(nn.Module):
         :rtype: torch.Tensor
         """
         _, img_h, img_w = x.shape
-        c = self.feat_dim
+        c = feature_batch.shape[-1]  # self.feat_dim
+        # print(feature_batch.shape)
         stride_l = self.stride[0]
         n_patch_w: int = 1 + (img_w - self.original_patch_size) // stride_l
         n_patch_h: int = 1 + (img_h - self.original_patch_size) // stride_l
@@ -281,7 +294,9 @@ class HighResDV2(nn.Module):
         return mean
 
     @torch.no_grad()
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, x: torch.Tensor, attn: AttentionOptions = "none"
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Feed input img $x through network and get low and high res features.
 
         :param x: unbatched image tensor
@@ -296,15 +311,21 @@ class HighResDV2(nn.Module):
 
         # this is unweildy, might need a change
         temp_stride = self.stride
+
         low_res_features = self.get_dv2_features(
             x.unsqueeze(0), self.original_stride[0]
         )
-        features_batch = self.get_dv2_features(img_batch, temp_stride[0])
+        if attn == "none":
+            features_batch = self.get_dv2_features(img_batch, temp_stride[0])
+        else:
+            features_batch = self.get_dv2_attn(img_batch, temp_stride[0], attn)
         upsampled_features = self.invert_transforms(features_batch, x)
         return upsampled_features, low_res_features
 
     @torch.no_grad()
-    def forward_sequential(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward_sequential(
+        self, x: torch.Tensor, attn: AttentionOptions = "none"
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Perform transform -> featurise -> upscale -> inverse -> average forward pass
         sequentially, performing more calls to DINOv2 but reducing the memory overhead.
 
@@ -324,7 +345,16 @@ class HighResDV2(nn.Module):
         )
 
         _, img_h, img_w = x.shape
-        c = self.feat_dim
+
+        if attn == "cls":
+            c = self.n_heads
+        elif attn == "reg":
+            c = self.n_heads * self.n_register_tokens
+        elif attn == "both":
+            c = self.n_heads * (self.n_register_tokens + 1)
+        else:
+            c = self.feat_dim
+
         stride_l = temp_stride[0]
         n_patch_w: int = 1 + (img_w - self.original_patch_size) // stride_l
         n_patch_h: int = 1 + (img_h - self.original_patch_size) // stride_l
@@ -342,7 +372,10 @@ class HighResDV2(nn.Module):
         N_transforms = len(self.transforms)
         for i in range(N_transforms):
             transformed_img = img_batch[i].unsqueeze(0)
-            features = self.get_dv2_features(transformed_img, temp_stride[0])
+            if attn == "none":
+                features = self.get_dv2_features(transformed_img, temp_stride[0])
+            else:
+                features = self.get_dv2_attn(transformed_img, temp_stride[0], attn)
             features = features.squeeze(0)
             feat_patch = features.view((n_patch_h, n_patch_w, c))
             permuted = feat_patch.permute((2, 0, 1)).unsqueeze(0)
