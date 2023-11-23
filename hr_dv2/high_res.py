@@ -16,6 +16,7 @@ from typing import List, Tuple, Callable, TypeAlias, Literal
 Interpolation: TypeAlias = Literal[
     "nearest", "linear", "bilinear", "bicubic", "trilinear", "area", "nearest-exact"
 ]
+AttentionOptions: TypeAlias = Literal["cls", "reg", "both", "none"]
 
 
 # ==================== MODULE ====================
@@ -43,6 +44,7 @@ class HighResDV2(nn.Module):
         self.original_pos_enc = self.dinov2.interpolate_pos_encoding
         self.feat_dim: int = feat
         self.n_heads: int = 6
+        self.n_register_tokens = 4
 
         self.stride = _pair(stride)
         self.set_model_stride(self.dinov2, stride)
@@ -196,7 +198,7 @@ class HighResDV2(nn.Module):
         self,
         x: torch.Tensor,
         stride_l: int = -1,
-        which: Literal["cls", "reg", "both"] = "cls",
+        which: AttentionOptions = "cls",
     ) -> torch.Tensor:
         """Feed batched img tensor $x into DINOv2, optionally set stride and return features.
 
@@ -214,24 +216,30 @@ class HighResDV2(nn.Module):
             self.set_model_stride(self.dinov2, stride_l)
         attention: torch.Tensor = self.dinov2.get_last_self_attention(x)  # type: ignore
 
-        n_register_tokens = 4  # change this for ViTs
+        # change this for ViTs
         b, n_heads, n_tokens, _ = attention.shape
         s0: int = 0
         s1: int = 1
         if which == "reg":
             s0 = 1
-            s1 = 1 + n_register_tokens
+            s1 = 1 + self.n_register_tokens
         elif which == "both":
-            s1 = 1 + n_register_tokens
-        delta = s1 - s0
-        # attention tokens are packed in after the first token; the spatial tokens follow
-        attention = attention[:, :, s0:s1, 1 + n_register_tokens :].reshape(
-            b, n_heads * delta, -1
-        )
-        attention = torch.permute(attention, (0, 2, 1))
+            s1 = 1 + self.n_register_tokens
+
+        # we use a list approach to ensure our we get correct order i.e that attention[:, 0:6, :, :]
+        # is the attention of 6 heads to cls/register token 0
+        attn_list = []
+        for i in range(s0, s1):
+            # attention tokens are packed in after the first token; the spatial tokens follow
+            token_attention = attention[:, :, i, 1 + self.n_register_tokens :].reshape(
+                b, n_heads, -1
+            )
+            attn_list.append(token_attention)
+        all_attention = torch.cat(attn_list, dim=1)
+        all_attention = torch.permute(all_attention, (0, 2, 1))
         if self.dtype != torch.float32:
-            attention = attention.to(self.dtype)
-        return attention
+            all_attention = all_attention.to(self.dtype)
+        return all_attention
 
     @torch.no_grad()
     def invert_transforms(
@@ -287,7 +295,7 @@ class HighResDV2(nn.Module):
 
     @torch.no_grad()
     def forward(
-        self, x: torch.Tensor, attn: bool = False
+        self, x: torch.Tensor, attn: AttentionOptions = "none"
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Feed input img $x through network and get low and high res features.
 
@@ -307,16 +315,16 @@ class HighResDV2(nn.Module):
         low_res_features = self.get_dv2_features(
             x.unsqueeze(0), self.original_stride[0]
         )
-        if attn is False:
+        if attn == "none":
             features_batch = self.get_dv2_features(img_batch, temp_stride[0])
         else:
-            features_batch = self.get_dv2_attn(img_batch, temp_stride[0])
+            features_batch = self.get_dv2_attn(img_batch, temp_stride[0], attn)
         upsampled_features = self.invert_transforms(features_batch, x)
         return upsampled_features, low_res_features
 
     @torch.no_grad()
     def forward_sequential(
-        self, x: torch.Tensor, attn: bool = False
+        self, x: torch.Tensor, attn: AttentionOptions = "none"
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Perform transform -> featurise -> upscale -> inverse -> average forward pass
         sequentially, performing more calls to DINOv2 but reducing the memory overhead.
@@ -337,7 +345,16 @@ class HighResDV2(nn.Module):
         )
 
         _, img_h, img_w = x.shape
-        c = self.n_heads if attn else self.feat_dim
+
+        if attn == "cls":
+            c = self.n_heads
+        elif attn == "reg":
+            c = self.n_heads * self.n_register_tokens
+        elif attn == "both":
+            c = self.n_heads * (self.n_register_tokens + 1)
+        else:
+            c = self.feat_dim
+
         stride_l = temp_stride[0]
         n_patch_w: int = 1 + (img_w - self.original_patch_size) // stride_l
         n_patch_h: int = 1 + (img_h - self.original_patch_size) // stride_l
@@ -355,10 +372,10 @@ class HighResDV2(nn.Module):
         N_transforms = len(self.transforms)
         for i in range(N_transforms):
             transformed_img = img_batch[i].unsqueeze(0)
-            if attn is False:
+            if attn == "none":
                 features = self.get_dv2_features(transformed_img, temp_stride[0])
             else:
-                features = self.get_dv2_attn(transformed_img, temp_stride[0])
+                features = self.get_dv2_attn(transformed_img, temp_stride[0], attn)
             features = features.squeeze(0)
             feat_patch = features.view((n_patch_h, n_patch_w, c))
             permuted = feat_patch.permute((2, 0, 1)).unsqueeze(0)
