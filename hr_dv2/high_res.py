@@ -108,11 +108,16 @@ class HighResDV2(nn.Module):
             )  # typed ignored as they can't type check reassigned methods (generally is poor practice)
 
     def patch_last_block(self, dino_model: nn.Module) -> None:
-        final_block = dino_model.blocks[-1]
-        attn_block = final_block.attn
+        """Patch the final block of the dino model to add attention return code.
+
+        :param dino_model: DINO or DINOv2 model
+        :type dino_model: nn.Module
+        """
+        final_block = dino_model.blocks[-1]  # type: ignore
+        attn_block = final_block.attn  # type: ignore
         attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
-        final_block.forward = MethodType(Patch._fix_block_forward(), final_block)
-        dino_model.get_last_self_attention = MethodType(
+        final_block.forward = MethodType(Patch._fix_block_forward(), final_block)  # type: ignore
+        dino_model.get_last_self_attention = MethodType(  # type: ignore
             Patch._add_forward_attn(), dino_model
         )
 
@@ -168,7 +173,7 @@ class HighResDV2(nn.Module):
     def get_dv2_features(self, x: torch.Tensor, stride_l: int = -1) -> torch.Tensor:
         """Feed batched img tensor $x into DINOv2, optionally set stride and return features.
 
-        :param x: batched img tensor
+        :param x: batched img tensor, shape [B, C, H, W]
         :type x: torch.Tensor
         :param stride: desired stride/resolution for VE, defaults to -1
         :type stride: int, optional
@@ -187,10 +192,15 @@ class HighResDV2(nn.Module):
         return feat_tensor
 
     @torch.no_grad()
-    def get_dv2_attn(self, x: torch.Tensor, stride_l: int = -1) -> torch.Tensor:
+    def get_dv2_attn(
+        self,
+        x: torch.Tensor,
+        stride_l: int = -1,
+        which: Literal["cls", "reg", "both"] = "cls",
+    ) -> torch.Tensor:
         """Feed batched img tensor $x into DINOv2, optionally set stride and return features.
 
-        :param x: batched img tensor
+        :param x: batched img tensor, shape [B, C, H, W]
         :type x: torch.Tensor
         :param stride: desired stride/resolution for VE, defaults to -1
         :type stride: int, optional
@@ -206,8 +216,18 @@ class HighResDV2(nn.Module):
 
         n_register_tokens = 4  # change this for ViTs
         b, n_heads, n_tokens, _ = attention.shape
+        s0: int = 0
+        s1: int = 1
+        if which == "reg":
+            s0 = 1
+            s1 = 1 + n_register_tokens
+        elif which == "both":
+            s1 = 1 + n_register_tokens
+        delta = s1 - s0
         # attention tokens are packed in after the first token; the spatial tokens follow
-        attention = attention[:, :, 0, 1 + n_register_tokens :].reshape(b, n_heads, -1)
+        attention = attention[:, :, s0:s1, 1 + n_register_tokens :].reshape(
+            b, n_heads * delta, -1
+        )
         attention = torch.permute(attention, (0, 2, 1))
         if self.dtype != torch.float32:
             attention = attention.to(self.dtype)

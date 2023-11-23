@@ -1,12 +1,13 @@
-"""Patch the various methods of classes and subclasses in the Vision Transformer"""
+"""Patch the various methods of classes and subclasses in the Vision Transformer to add ]
+new features like overlapping patches and attention visualisation"""
 import torch
 import torch.nn.functional as F
 import math
 import os
-import warnings
 
 from typing import Tuple, Callable
 
+# here to avoid syntax erros - checked already in DinoV2 code
 XFORMERS_ENABLED = os.environ.get("XFORMERS_DISABLED") is None
 try:
     if XFORMERS_ENABLED:
@@ -77,8 +78,19 @@ class Patch:
 
         return interpolate_pos_encoding
 
+    """The next 5 methods are taken from user 'legel' on GitHub https://github.com/facebookresearch/dinov2/pull/306,
+    who's written a pull request for Dv2 to output attention maps. The maintainers suggest using a hook, which is
+    another option. Instead of editing the Dv2 source, I've used the same MethodType assignment procedure as above."""
+
     @staticmethod
     def _fix__attn() -> Callable:
+        """Replaces normal 'forward()' method of the attention layer (block.attn) in the Dv2 model with
+        an optional early return with attention.
+
+        :return: the new forward method
+        :rtype: Callable
+        """
+
         def forward(self, x: torch.Tensor, return_attn: bool = False) -> torch.Tensor:
             B, N, C = x.shape
             qkv = (
@@ -105,6 +117,13 @@ class Patch:
 
     @staticmethod
     def _fix_mem_eff_attn() -> Callable:
+        """Replaces normal 'forward()' method of the memory efficient attention layer (block.attn)
+        in the Dv2 model with an optional early return with attention. Used if xformers used.
+
+        :return: the new forward method
+        :rtype: Callable
+        """
+
         def forward(
             self, x: torch.Tensor, attn_bias=None, return_attn: bool = False
         ) -> torch.Tensor:
@@ -113,11 +132,7 @@ class Patch:
                     raise AssertionError(
                         "xFormers is required for using nested tensors"
                     )
-                return super().forward(x)
-                assert (
-                    attn_bias is None
-                ), "xFormers is required for nested tensors usage"
-                return super().forward(x, return_attn)
+                return super().forward(x, return_attn)  # type: ignore
             B, N, C = x.shape
             qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
 
@@ -137,6 +152,13 @@ class Patch:
 
     @staticmethod
     def _fix_block_forward() -> Callable:
+        """Replaces normal 'forward()' method of the block module to ensure the 'return_attn'
+        flag is used in the attn forward layers.
+
+        :return: the new forward method
+        :rtype: Callable
+        """
+
         def forward(self, x: torch.Tensor, return_attn: bool = False) -> torch.Tensor:
             def attn_residual_func(x: torch.Tensor) -> torch.Tensor:
                 return self.ls1(self.attn(self.norm1(x)))
@@ -171,9 +193,11 @@ class Patch:
 
     @staticmethod
     def _fix_nested_block_forward() -> Callable:
+        """Not used - assumes user isn't using a list"""
+
         def forward(self, x_or_x_list):
             if isinstance(x_or_x_list, torch.Tensor):
-                return super().forward(x_or_x_list)
+                return super().forward(x_or_x_list)  # type: ignore
             elif isinstance(x_or_x_list, list):
                 if not XFORMERS_AVAILABLE:
                     raise AssertionError(
@@ -187,6 +211,13 @@ class Patch:
 
     @staticmethod
     def _add_forward_attn() -> Callable:
+        """Adds a new method to the VisionTransformer class called
+        'get_last_self_attention' that gets attention of the last layer.
+
+        :return: new method that gets attention of last lyaer
+        :rtype: Callable
+        """
+
         def get_last_self_attention(self, x, masks=None):
             if isinstance(x, list):
                 return self.forward_features_list(x, masks)
@@ -203,6 +234,7 @@ class Patch:
         return get_last_self_attention
 
 
+# here to avoid syntax errors
 def drop_add_residual_stochastic_depth(
     x: torch.Tensor,
     residual_func: Callable[[torch.Tensor], torch.Tensor],
