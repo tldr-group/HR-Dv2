@@ -160,6 +160,8 @@ cython_debug/
 #.idea/
 
 *data/*
+*experiments/object_localization/datasets/*
+*experiments/object_localization/out/*
 *dinov2/*
 *.venv*
 *.vscode*
