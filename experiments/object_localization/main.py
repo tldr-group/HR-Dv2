@@ -9,6 +9,8 @@ from sklearn.decomposition import PCA
 from skimage.measure import label
 import pydensecrf.densecrf as dcrf
 from pydensecrf.utils import unary_from_labels
+from skimage import segmentation, color
+from skimage import graph
 
 torch.cuda.empty_cache()
 
@@ -126,13 +128,125 @@ def do_pca(
     return data
 
 
+def RAG(
+    net: HighResDV2,
+    img_arr: np.ndarray,
+    img_tensor: torch.Tensor,
+    k: int = 3,
+    verbose: bool = False,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    This seems to be working relatively well. Pipeline is:
+    1) HRDv2 for features
+    2) PCA down to 3 components
+    3) SLIC superpixel segmentation (i.e k-means in colour space)
+    could just k-means?
+    => n class segmentation
+    4) CRF to improve segmentation (using labels rather than confidence)
+
+    Could really replace 3 with anything that clusters the features and considers spatial
+    effects. Need to try varying PCA n_dim, SLIC parameters, CRF parameters
+
+    :param net: _description_
+    :type net: HighResDV2
+    :param img_arr: _description_
+    :type img_arr: np.ndarray
+    :param img_tensor: _description_
+    :type img_tensor: torch.Tensor
+    :param k: _description_, defaults to 3
+    :type k: int, optional
+    :param verbose: _description_, defaults to False
+    :type verbose: bool, optional
+    :return: _description_
+    :rtype: Tuple[np.ndarray, np.ndarray]
+    """
+
+    def _weight_mean_color(graph, src, dst, n):
+        diff = graph.nodes[dst]["mean color"] - graph.nodes[n]["mean color"]
+        diff = np.linalg.norm(diff)
+        return {"weight": diff}
+
+    def merge_mean_color(graph, src, dst):
+        graph.nodes[dst]["total color"] += graph.nodes[src]["total color"]
+        graph.nodes[dst]["pixel count"] += graph.nodes[src]["pixel count"]
+        graph.nodes[dst]["mean color"] = (
+            graph.nodes[dst]["total color"] / graph.nodes[dst]["pixel count"]
+        )
+
+    start = time()
+    ih, iw, ic = img_arr.shape
+    hr_tensor, _ = net.forward(img_tensor, attn="none")
+    features: np.ndarray
+    b, c, fh, fw = hr_tensor.shape
+    features = tr.to_numpy(hr_tensor)
+    reshaped = features.reshape((c, fh * fw)).T
+
+    standard = standardize_img(reshaped)
+    pca = PCA(
+        n_components=k, svd_solver="randomized", n_oversamples=5, iterated_power=3
+    )
+    pca.fit(standard)
+    standard = pca.transform(standard)
+    rescaled = rescale_pca(standard).reshape((ih, iw, k))
+    rescaled = (255 * rescaled).astype(np.uint8)
+
+    labels = segmentation.slic(
+        rescaled,
+        compactness=30,
+        n_segments=20,
+        start_label=0,
+        convert2lab=True,
+        sigma=1,
+        enforce_connectivity=False,
+    )
+    g = graph.rag_mean_color(rescaled, labels)
+
+    labels2 = graph.merge_hierarchical(
+        labels,
+        g,
+        thresh=110,
+        rag_copy=False,
+        in_place_merge=True,
+        merge_func=merge_mean_color,
+        weight_func=_weight_mean_color,
+    )
+
+    n_classes = np.amax(labels2) + 1
+    unary = unary_from_labels(labels2, n_classes, LABEL_CONFIDENCE, zero_unsure=False)
+    d = dcrf.DenseCRF2D(iw, ih, n_classes)
+    u = np.ascontiguousarray(unary)
+    d.setUnaryEnergy(u)
+    d.addPairwiseGaussian(
+        sxy=SXY_G,
+        compat=COMPAT_G,
+        kernel=KERNEL,
+        normalization=dcrf.NORMALIZE_SYMMETRIC,
+    )
+    d.addPairwiseBilateral(
+        sxy=SXY_B,
+        srgb=SRGB,
+        rgbim=img_arr,
+        compat=COMPAT_B,
+        kernel=KERNEL,
+        normalization=dcrf.NORMALIZE_SYMMETRIC,
+    )
+    Q = d.inference(10)
+    crf_seg = np.argmax(Q, axis=0)
+    crf_seg = crf_seg.reshape((ih, iw, 1))
+    end = time()
+    if verbose:
+        print(f"Finished in {end-start}s")
+    return rescaled, crf_seg
+
+
 DIR = os.getcwd() + "/experiments/object_localization"
 
 
 def main() -> None:
     net = HighResDV2("dinov2_vits14_reg", 4, dtype=torch.float16)
     shift_dists = [i for i in range(1, 3)]
-    transforms, inv_transforms = tr.get_shift_transforms(shift_dists, "Moore")
+    # transforms, inv_transforms = tr.get_shift_transforms(shift_dists, "Moore")
+    transforms, inv_transforms = tr.get_flip_transforms()
     net.set_transforms(transforms, inv_transforms)
     net.cuda()
     net.eval()
@@ -165,16 +279,28 @@ def main() -> None:
 
         img = transform(img)
         pil_img: Image.Image = tr.to_img(tr.unnormalize(img))
-        pil_img.save(f"{DIR}/out/{img_idx}_img.png")
         img_arr = np.array(pil_img)
+        new_h, new_w, c = img_arr.shape
+
         img = img.cuda()
 
+        pca, seg = RAG(net, img_arr, img, verbose=False)
+
+        reshaped_seg = seg.reshape((new_h, new_w)) + 1
+        recolored_seg = color.label2rgb(reshaped_seg, img_arr, kind="avg")
+
+        stacked = np.hstack((img_arr, pca, recolored_seg))
+        pil_tri_img = Image.fromarray(stacked)
+        pil_tri_img.save(f"{DIR}/out/{img_idx}_processed.png")
+        img = img.cpu()
+
+        """
         feature_map = do_pca(net, img)
         pca_img_arr = (255 * feature_map).astype(np.uint8)
         pca_pil_img = Image.fromarray(pca_img_arr)
         pca_pil_img.save(f"{DIR}/out/{img_idx}_pca.png")
 
-        """
+        
         seg = object_segment(net, img_arr, img, False, (add_h, add_w))
         grey = (seg * 255).squeeze(-1).astype(np.uint8)
 
@@ -183,7 +309,7 @@ def main() -> None:
         """
 
         img_idx += 1
-        if img_idx > 100:
+        if img_idx > 300:
             break
 
 

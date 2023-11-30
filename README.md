@@ -36,6 +36,11 @@ pip install -r dinov2/requirements.txt -r dinov2/requirements-dev.txt
 pip install -e .
 ```
 
+### PATHS:
+Two possible 'paths'
+1) fuse color matting matrix $\psi = \cos{c_{H}, \sin{c_{H}}, c_{s}, c_{v}, p_{x}, p_{y}}$ with a 5-component PCA of HR-Dv2 features and perform clustering
+2) use attention maps to find foreground objects. cluster only foreground features? 
+
 ### TODO:
 - [x] Rewrite the code to use any transformation (list of partial functions & their inverse) and integrate VE code, storing original Dv2 stride and positional encoding code to re-enable later
 - [x] Break up utils into more meaningful files (plotting, converting *etc.*) and add docstrings
