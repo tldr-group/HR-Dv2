@@ -3,7 +3,7 @@ from time import time
 import torch
 import torchvision.transforms.functional as TF
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from skimage.measure import label
@@ -268,6 +268,7 @@ def main() -> None:
             # pass if no bbox
             if gt_bbxs.shape[0] == 0:
                 continue
+        print(len(gt_bbxs))
 
         c, h, w = img.shape
         add_h: int = PATCH_SIZE - (h % PATCH_SIZE)
@@ -277,11 +278,18 @@ def main() -> None:
             h, w, 14, to_tensor=False
         )  # tr.closest_pad(h, w, 4)
 
-        img = transform(img)
+        # img = transform(img)
         pil_img: Image.Image = tr.to_img(tr.unnormalize(img))
         img_arr = np.array(pil_img)
         new_h, new_w, c = img_arr.shape
 
+        draw = ImageDraw.Draw(pil_img)
+        for bbox in gt_bbxs:
+            x0, y0, x1, y1 = bbox
+            draw.rectangle(((x0, y0), (x1, y1)), fill=None, outline="blue", width=2)
+        pil_img.save(f"{DIR}/out/{img_idx}.png")
+
+        """
         img = img.cuda()
 
         pca, seg = RAG(net, img_arr, img, verbose=False)
@@ -294,7 +302,7 @@ def main() -> None:
         pil_tri_img.save(f"{DIR}/out/{img_idx}_processed.png")
         img = img.cpu()
 
-        """
+        
         feature_map = do_pca(net, img)
         pca_img_arr = (255 * feature_map).astype(np.uint8)
         pca_pil_img = Image.fromarray(pca_img_arr)
@@ -309,7 +317,7 @@ def main() -> None:
         """
 
         img_idx += 1
-        if img_idx > 300:
+        if img_idx > 150:
             break
 
 
