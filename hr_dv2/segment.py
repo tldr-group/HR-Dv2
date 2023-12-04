@@ -6,6 +6,7 @@ from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 import pydensecrf.densecrf as dcrf
 from pydensecrf.utils import unary_from_labels
+from skimage.measure import label
 
 
 from .high_res import HighResDV2
@@ -15,6 +16,8 @@ from .utils import *
 from dataclasses import dataclass
 from typing import Tuple
 
+SMALL_OBJECT_AREA_CUTOFF = 50
+
 
 def get_dv2_features(
     net: HighResDV2,
@@ -22,8 +25,21 @@ def get_dv2_features(
     flatten: bool = True,
     sequential: bool = False,
 ) -> np.ndarray:
-    # Given a HR-DV2 net with set transforms, get features. Either (c, h, w) or (h * w, c) depending on flatten.
-    # Use sequential for high memory (large image and/or n_transforms) situations.
+    """Given a HR-DV2 net with set transforms, get features. Either
+    # Use for high memory (large image and/or n_transforms) situations.
+
+    :param net: net to get features from
+    :type net: HighResDV2
+    :param tensor: image tensor, (C, H, W)
+    :type tensor: torch.Tensor
+    :param flatten: flatten output feature array, defaults to True
+    :type flatten: bool, optional
+    :param sequential: use for high memory (large image and/or n_transforms) situations, defaults to False
+    :type sequential: bool, optional
+    :return: np array, either (c, h, w) or (h * w, c) depending on flatten.
+    :rtype: np.ndarray
+    """
+
     if sequential:
         hr_tensor, _ = net.forward_sequential(tensor, attn="none")
     else:
@@ -38,7 +54,18 @@ def get_dv2_features(
 
 
 def do_pca(features: np.ndarray, k: int = 3, standardize: bool = True) -> np.ndarray:
-    # k component dimensionality reduction of (n_samples, n_channels) features.
+    """k-component dimensionality reduction of (n_samples, n_channels) features.
+
+    :param features: np array, (n_samples, n_channels)
+    :type features: np.ndarray
+    :param k: number of PCA components, defaults to 3
+    :type k: int, optional
+    :param standardize: whether to standardize data before PCA, defaults to True
+    :type standardize: bool, optional
+    :return: k-component PCA of features, (n_samples, k)
+    :rtype: np.ndarray
+    """
+
     if standardize:
         features = standardize_img(features)
     pca = PCA(
@@ -114,6 +141,7 @@ def cluster(
         net.set_transforms(fwd, inv)
     else:
         attn = np.zeros_like(img_arr)
+    print(attn.shape)
     hr_tensor, _ = net.forward(img_tensor, attn="none")
     features: np.ndarray
     b, c, fh, fw = hr_tensor.shape
@@ -152,8 +180,52 @@ def get_attn_density(
     return attention_density_map, densities
 
 
-def get_attn_cutoff(densities: np.ndarray, offset: int = 2) -> float:
+def get_attn_cutoff(densities: np.ndarray | List[float], offset: int = 2) -> float:
     n, bins = np.histogram(densities, bins=10)
     max_loc = int(np.argmax(n))
     cutoff = bins[max_loc + offset]
     return cutoff
+
+
+def foreground_segment(
+    net: HighResDV2,
+    img_arr: np.ndarray,
+    img_tensor: torch.Tensor,
+    clusters: List[int],
+    crf_params: CRFParams,
+) -> np.ndarray:
+    h, w, c = img_arr.shape
+    segs, attn = cluster(net, img_arr, img_tensor, clusters, True, False)
+    seg = segs[0].reshape((h, w))
+    sum_cls = np.sum(attn, axis=0)
+    density_map, densities = get_attn_density(seg, sum_cls)
+    cutoff = get_attn_cutoff(densities, 2)
+    fg_seg = (density_map > cutoff).astype(np.uint8)
+    refined = do_crf_from_labels(fg_seg, img_arr, 2, crf_params)
+    # if crf fails, fall back on (thresholded) attn denisty map
+    if np.sum(refined) < SMALL_OBJECT_AREA_CUTOFF:
+        refined = fg_seg
+    return refined
+
+
+def get_bbox(arr: np.ndarray, offsets: Tuple[int, int] = (0, 0)) -> List[int]:
+    idxs = np.nonzero(arr)
+    y_min, y_max = np.amin(idxs[0]), np.amax(idxs[0])
+    x_min, x_max = np.amin(idxs[1]), np.amax(idxs[1])
+
+    ox, oy = offsets
+    x0, y0 = int(x_min + ox), int(y_min + oy)
+    x1, y1 = int(x_max + ox), int(y_max + oy)
+    return [x0, y0, x1, y1]
+
+
+def get_seg_bboxes(fg_seg: np.ndarray, offsets: Tuple[int, int] = (0, 0)) -> np.ndarray:
+    bboxes: List[List[int]] = []
+    separated, n_components = label(fg_seg, return_num=True)  # type: ignore
+    for i in range(1, n_components + 1):
+        current_obj = np.where(separated == i, 1, 0).astype(np.uint8)
+        if np.sum(current_obj) > SMALL_OBJECT_AREA_CUTOFF:
+            obj_bbox = get_bbox(current_obj, offsets)
+            bboxes.append(obj_bbox)
+    bboxes_arr = np.array(bboxes)
+    return bboxes_arr
