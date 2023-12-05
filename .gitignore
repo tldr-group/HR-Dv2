@@ -171,3 +171,4 @@ cython_debug/
 *d3_old*
 *.mp4
 *frame*
+*old_data*

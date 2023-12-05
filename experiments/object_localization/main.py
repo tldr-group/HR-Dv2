@@ -4,12 +4,12 @@ import torch
 import torchvision.transforms.functional as TF
 import numpy as np
 from PIL import Image, ImageDraw
+
 import matplotlib
 import matplotlib.pyplot as plt
 
 matplotlib.use("Agg")
 import matplotlib.patches as patches
-import matplotlib.pyplot
 
 torch.cuda.empty_cache()
 

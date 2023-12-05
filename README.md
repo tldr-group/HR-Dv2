@@ -50,16 +50,15 @@ Two possible 'paths'
 - [x] Integrate into SAMBA/trainable segmentation platform?
 - [x] High-res video (maybe try on big PC)
 - [x] Add rotation transforms, test in microstructure
-- [ ] Add option to use different ViTs (like DINO or SAM)
 - [x] Visualise CLS/Attention maps, also high-res them if cheap. Try use that for fg/bg detection
-- [ ] Try combining classical and NN features?
+- [x] Test automated 1st PCA component/fg threshold finding using entropy per unit area
+- [ ] Add option to use q,k or v values from attention of CLS (& compare perf)
+- [ ] Add option to use different ViTs (like DINO or SAM)
 - [ ] Measure and plot memory footprints of each method
-- [ ] Test automated 1st PCA component/fg threshold finding using entropy per unit area 
-- [ ] Test semantic segmentation via PCA -> NMF/kmeans of foreground features
-- [ ] Test (& visualise) co-segmentation with clustering across shared (potentially PCA'd) feature space
-- [ ] Evaluation of foreground segmentation on Pascal VOC12, compare to DINO, upscaled Dv2
+- [ ] Evaluation of object localization on VOC, compare w/ "Deep spectral methods', MOST, LOST
+- [ ] Evaluation of foreground segmentation on CUBS, compare w/ "Deep spectral methods'
 - [ ] Evalutation of semantic segmentation on Pascal VOC12, compare w/ 'Deep spectral Methods ...' 
-- [ ] Evaluation co-segmentation performance on Berkely UCSD Birds dataset, comparison to 'Deep ViT Features as Dense Visual Descriptors'
+- [ ] Evaluation co-segmentation performance on CUBS, comparison to 'Deep ViT Features as Dense Visual Descriptors'
 
 
 ## Links
