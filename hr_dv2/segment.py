@@ -3,7 +3,8 @@ import torch
 import numpy as np
 from time import time
 from sklearn.decomposition import PCA
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, AgglomerativeClustering
+
 import pydensecrf.densecrf as dcrf
 from pydensecrf.utils import unary_from_labels
 from skimage.measure import label
@@ -125,10 +126,10 @@ def cluster(
     net: HighResDV2,
     img_arr: np.ndarray,
     img_tensor: torch.Tensor,
-    clusters: List[int],
+    n_clusters: int,
     get_attn: bool = True,
     verbose: bool = False,
-) -> Tuple[List[np.ndarray], np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     start = time()
     attn: np.ndarray
     if get_attn:
@@ -141,7 +142,6 @@ def cluster(
         net.set_transforms(fwd, inv)
     else:
         attn = np.zeros_like(img_arr)
-    print(attn.shape)
     hr_tensor, _ = net.forward(img_tensor, attn="none")
     features: np.ndarray
     b, c, fh, fw = hr_tensor.shape
@@ -150,18 +150,13 @@ def cluster(
 
     normed = normalise_pca(reshaped)
 
-    labels = []
-    for n in clusters:
-        cluster = KMeans(n_clusters=n, n_init="auto", max_iter=300)
-        label = cluster.fit_predict(normed)
-        # refined_seg = do_crf_from_labels(label, img_arr, n, default_crf_params)
-        refined_seg = label
-        labels.append(refined_seg)
+    cluster = KMeans(n_clusters=n_clusters, n_init="auto", max_iter=300)
+    labels = cluster.fit_predict(normed)
 
     end = time()
     if verbose:
         print(f"Finished in {end-start}s")
-    return labels, attn
+    return labels, attn, cluster.cluster_centers_
 
 
 def get_attn_density(
@@ -187,25 +182,115 @@ def get_attn_cutoff(densities: np.ndarray | List[float], offset: int = 2) -> flo
     return cutoff
 
 
+def mag(vec: np.ndarray) -> np.ndarray:
+    return np.sqrt(np.dot(vec, vec))
+
+
+def get_feature_similarities(
+    fg_clusters: np.ndarray, bg_clusters: np.ndarray
+) -> Tuple[List[float], List[float]]:
+    fg_bg_similarities = []
+    for i, c1 in enumerate(fg_clusters):
+        for j, c2 in enumerate(bg_clusters):
+            similarity = np.dot(c1, c2) / (mag(c1) * mag(c2))
+            fg_bg_similarities.append(similarity)
+
+    fg_fg_similarities = []
+    for i, c1 in enumerate(fg_clusters):
+        for j, c2 in enumerate(fg_clusters):
+            if i == j:
+                pass
+            else:
+                similarity = np.dot(c1, c2) / (mag(c1) * mag(c2))
+                fg_fg_similarities.append(similarity)
+    return fg_bg_similarities, fg_fg_similarities
+
+
+def get_similarity_cutoff(fg_bg_similarities: List[float]) -> float:
+    bins, edges = np.histogram(fg_bg_similarities)
+    similarity_cutoff = (edges[np.argmax(bins)] + edges[np.argmax(bins) + 1]) / 2
+    return similarity_cutoff
+
+
+def merge_foreground_clusters(
+    fg_clusters: np.ndarray, similarity_cutoff: float, offset: int = 1
+) -> np.ndarray:
+    distance_cutoff = 1 - similarity_cutoff
+    cluster = AgglomerativeClustering(
+        n_clusters=None,
+        metric="cosine",
+        linkage="complete",
+        distance_threshold=distance_cutoff,
+    )
+    fg_clustered = cluster.fit_predict(fg_clusters) + offset
+    return fg_clustered
+
+
+def split_foreground_and_refine(
+    fg_mask: np.ndarray,
+    fg_clustered: np.ndarray,
+    clustered_arr: np.ndarray,
+    img_arr: np.ndarray,
+    crf_params: CRFParams,
+) -> Tuple[np.ndarray, np.ndarray]:
+    out = np.zeros_like(clustered_arr)
+    for i, val in enumerate(fg_mask):
+        current_obj = np.where(clustered_arr == val, fg_clustered[i], 0)
+        out += current_obj
+    refined = do_crf_from_labels(out, img_arr, np.amax(fg_clustered) + 1, crf_params)
+    return refined, out
+
+
 def foreground_segment(
     net: HighResDV2,
     img_arr: np.ndarray,
     img_tensor: torch.Tensor,
-    clusters: List[int],
+    n_cluster: int,
     crf_params: CRFParams,
-) -> np.ndarray:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     h, w, c = img_arr.shape
-    segs, attn = cluster(net, img_arr, img_tensor, clusters, True, False)
-    seg = segs[0].reshape((h, w))
+    seg, attn, _ = cluster(net, img_arr, img_tensor, n_cluster, True, False)
+    seg = seg.reshape((h, w))
     sum_cls = np.sum(attn, axis=0)
     density_map, densities = get_attn_density(seg, sum_cls)
     cutoff = get_attn_cutoff(densities, 2)
     fg_seg = (density_map > cutoff).astype(np.uint8)
-    refined = do_crf_from_labels(fg_seg, img_arr, 2, crf_params)
+    refined, unrefined = do_crf_from_labels(fg_seg, img_arr, 2, crf_params)
     # if crf fails, fall back on (thresholded) attn denisty map
     if np.sum(refined) < SMALL_OBJECT_AREA_CUTOFF:
         refined = fg_seg
-    return refined
+    return refined, density_map, unrefined
+
+
+def multi_object_foreground_segment(
+    net: HighResDV2,
+    img_arr: np.ndarray,
+    img_tensor: torch.Tensor,
+    n_cluster: int,
+    crf_params: CRFParams,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    h, w, c = img_arr.shape
+    seg, attn, centers = cluster(net, img_arr, img_tensor, n_cluster, True, False)
+    seg = seg.reshape((h, w))
+    sum_cls = np.sum(attn, axis=0)
+    density_map, densities = get_attn_density(seg, sum_cls)
+    densities_arr = np.array(densities)
+
+    fg_mask = np.nonzero(densities_arr > np.mean(densities_arr))[0]
+    bg_mask = np.nonzero(densities_arr < np.mean(densities_arr))[0]
+
+    fg_clusters = centers[fg_mask]
+    bg_clusters = centers[bg_mask]
+
+    fg_bg_sims, fg_fg_sims = get_feature_similarities(fg_clusters, bg_clusters)
+    sim_cutoff = get_similarity_cutoff(fg_bg_sims)
+    fg_clustered = merge_foreground_clusters(fg_clusters, sim_cutoff)
+    refined, unrefined = split_foreground_and_refine(
+        fg_mask, fg_clustered, seg, img_arr, crf_params
+    )
+    if np.sum(refined) < SMALL_OBJECT_AREA_CUTOFF:
+        refined = unrefined
+    return refined, unrefined, density_map
 
 
 def get_bbox(arr: np.ndarray, offsets: Tuple[int, int] = (0, 0)) -> List[int]:
@@ -228,4 +313,18 @@ def get_seg_bboxes(fg_seg: np.ndarray, offsets: Tuple[int, int] = (0, 0)) -> np.
             obj_bbox = get_bbox(current_obj, offsets)
             bboxes.append(obj_bbox)
     bboxes_arr = np.array(bboxes)
+    # print(bboxes_arr.shape)
     return bboxes_arr
+
+
+def multi_class_bboxes(
+    multi_seg: np.ndarray, offsets: Tuple[int, int] = (0, 0)
+) -> np.ndarray:
+    n_classes = int(np.amax(multi_seg))
+    bbox_arrs: List[np.ndarray] = []
+    for class_val in range(1, n_classes + 1):
+        binary = np.where(multi_seg == class_val, 1, 0)
+        bbox_arr = get_seg_bboxes(binary, offsets)
+        # print(bbox_arr.shape)
+        bbox_arrs.append(bbox_arr)
+    return np.concatenate(bbox_arrs)

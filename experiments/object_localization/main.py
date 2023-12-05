@@ -15,8 +15,17 @@ torch.cuda.empty_cache()
 
 from hr_dv2 import HighResDV2, tr
 from hr_dv2.utils import *
-from hr_dv2.segment import foreground_segment, get_seg_bboxes, default_crf_params
+from hr_dv2.segment import (
+    foreground_segment,
+    multi_object_foreground_segment,
+    multi_class_bboxes,
+    get_seg_bboxes,
+    default_crf_params,
+)
 from dataset import ImageDataset, Dataset, bbox_iou, extract_gt_VOC
+
+torch.manual_seed(2189)
+np.random.seed(2189)
 
 
 DIR = os.getcwd() + "/experiments/object_localization"
@@ -30,6 +39,8 @@ def plot_results(
     pred_bboxes: np.ndarray,
     bbox_matches: List[bool],
     offset: Tuple[int, int],
+    density_map: np.ndarray,
+    semantic: np.ndarray,
     idx: int,
 ) -> None:
     def _draw_bboxes(bbox_list, colours: List[str], ax) -> None:
@@ -45,10 +56,16 @@ def plot_results(
             )
             ax.add_patch(rect)
 
-    fig, axs = plt.subplots(nrows=1, ncols=2)
+    fig, axs = plt.subplots(nrows=2, ncols=2)
     gt_colours = ["b" for i in range(len(gt_bboxes))]
-    axs[0].imshow(img_arr)
-    _draw_bboxes(gt_bboxes, gt_colours, axs[0])
+    img_ax, bbox_ax, density_ax, semantic_ax = (
+        axs[0, 0],
+        axs[0, 1],
+        axs[1, 0],
+        axs[1, 1],
+    )
+    img_ax.imshow(img_arr)
+    _draw_bboxes(gt_bboxes, gt_colours, img_ax)
 
     ox, oy = offset
     print(seg.shape, img_arr.shape)
@@ -57,21 +74,42 @@ def plot_results(
     dy, dx = (ih - (h + oy)), (iw - (w + ox))
     seg = np.pad(seg, ((oy, dy), (ox, dx), (0, 0)))
     seg = seg.reshape((ih, iw, 1))
-    alpha_mask = np.where(seg == 1, [1, 1, 1, 1], [0.25, 0.25, 0.25, 0.95])
+    alpha_mask = np.where(seg >= 1, [1, 1, 1, 1], [0.25, 0.25, 0.25, 0.95])
     img = Image.fromarray(img_arr).convert("RGBA")
     masked = (img * alpha_mask).astype(np.uint8)
-    axs[1].imshow(masked)
+    bbox_ax.imshow(masked)
     pred_colours = ["g" if i else "r" for i in bbox_matches]
-    _draw_bboxes(pred_bboxes, pred_colours, axs[1])
+    _draw_bboxes(pred_bboxes, pred_colours, bbox_ax)
 
-    axs[0].set_axis_off()
-    axs[1].set_axis_off()
+    density_ax.imshow(density_map)
+    semantic_ax.imshow(semantic)
+
+    for ax in [img_ax, bbox_ax, density_ax, semantic_ax]:
+        ax.set_axis_off()
+        ax.set_axis_off()
     plt.tight_layout()
     plt.savefig(f"{DIR}/out/{idx}.png")
 
 
+def get_corloc(gt_bbxs, pred_bboxes) -> Tuple[bool, List[bool], List[float]]:
+    ious = []
+    matches: List[bool] = []
+    corloc = False
+    for pred_bbox in pred_bboxes:
+        match = False
+        for gt_bbox in gt_bbxs:
+            iou: float = bbox_iou(torch.Tensor(gt_bbox), torch.Tensor(pred_bbox))  # type: ignore
+            if iou > 0.5:
+                corloc = True
+                match = True
+            ious.append(iou)
+        matches.append(match)
+    return corloc, matches, ious
+
+
 def main() -> None:
     net = HighResDV2("dinov2_vits14_reg", 4, dtype=torch.float16)
+    # net.interpolation_mode = "bicubic"
     shift_dists = [i for i in range(1, 3)]
     transforms, inv_transforms = tr.get_shift_transforms(shift_dists, "Moore")
     # transforms, inv_transforms = tr.get_flip_transforms()
@@ -81,6 +119,7 @@ def main() -> None:
 
     dataset = Dataset("VOC07", "test", True, tr.to_norm_tensor, DIR)
     corlocs = []
+    best_ious = []
 
     img_idx: int = 0
     n_imgs = len(dataset.dataloader)
@@ -113,35 +152,46 @@ def main() -> None:
         img_arr = np.array(tr.to_img(tr.unnormalize(img)))
         img = img.cuda()
 
-        seg = foreground_segment(net, img_arr, img, [40], default_crf_params)
+        """
+        seg = foreground_segment(net, img_arr, img, 40, default_crf_params)
         pred_bboxes = get_seg_bboxes(seg, (ox, oy))
-        img = img.cpu()
+        """
+        try:
+            seg, semantic, density_map = multi_object_foreground_segment(
+                net, img_arr, img, 80, default_crf_params
+            )
+            pred_bboxes = multi_class_bboxes(seg, (ox, oy))
+            img = img.cpu()
 
-        corloc = False
-        ious = []
-        matches: List[bool] = []
-        for pred_bbox in pred_bboxes:
-            match = False
-            for gt_bbox in gt_bbxs:
-                iou: float = bbox_iou(torch.Tensor(gt_bbox), torch.Tensor(pred_bbox))  # type: ignore
-                if iou > 0.5:
-                    corloc = True
-                    match = True
-                ious.append(iou)
-            matches.append(match)
+            corloc, matches, ious = get_corloc(gt_bbxs, pred_bboxes)
+
+            if img_idx % 10 == 0 and img_idx > 0:
+                plot_results(
+                    uncropped_img_arr,
+                    seg,
+                    gt_bbxs,
+                    pred_bboxes,
+                    matches,
+                    (ox, oy),
+                    density_map,
+                    semantic,
+                    img_idx,
+                )
+        except:
+            corloc = False
+            ious = [0]
         corlocs.append(corloc)
-
-        plot_results(
-            uncropped_img_arr, seg, gt_bbxs, pred_bboxes, matches, (ox, oy), img_idx
-        )
+        best_ious.append(max(ious))
 
         img_idx += 1
-        if img_idx > 150:
-            break
 
         if img_idx % 10 == 0 and img_idx > 0:
             avg_corloc = np.mean(corlocs)
-            print(f"{img_idx} / {n_imgs}: {avg_corloc :.5f}")
+            avg_bIoU = np.mean(best_ious)
+            std_bIoU = np.std(best_ious)
+            print(
+                f"{img_idx} / {n_imgs}: CorLoc={avg_corloc :.4f}, Avg Best IoU={avg_bIoU:.4f} +/- {std_bIoU}"
+            )
 
 
 if __name__ == "__main__":

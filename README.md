@@ -52,6 +52,7 @@ Two possible 'paths'
 - [x] Add rotation transforms, test in microstructure
 - [x] Visualise CLS/Attention maps, also high-res them if cheap. Try use that for fg/bg detection
 - [x] Test automated 1st PCA component/fg threshold finding using entropy per unit area
+- [ ] Use FAISS for faster k-means
 - [ ] Add option to use q,k or v values from attention of CLS (& compare perf)
 - [ ] Add option to use different ViTs (like DINO or SAM)
 - [ ] Measure and plot memory footprints of each method
