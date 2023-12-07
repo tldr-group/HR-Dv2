@@ -17,7 +17,7 @@ from .utils import *
 from dataclasses import dataclass
 from typing import Tuple
 
-SMALL_OBJECT_AREA_CUTOFF = 50
+SMALL_OBJECT_AREA_CUTOFF = 200
 
 
 def get_dv2_features(
@@ -186,13 +186,18 @@ def mag(vec: np.ndarray) -> np.ndarray:
     return np.sqrt(np.dot(vec, vec))
 
 
+def l2(v1: np.ndarray, v2: np.ndarray) -> np.ndarray:
+    return np.sqrt(np.sum((v1 - v2) * (v1 - v2)))
+
+
 def get_feature_similarities(
     fg_clusters: np.ndarray, bg_clusters: np.ndarray
 ) -> Tuple[List[float], List[float]]:
     fg_bg_similarities = []
     for i, c1 in enumerate(fg_clusters):
         for j, c2 in enumerate(bg_clusters):
-            similarity = np.dot(c1, c2) / (mag(c1) * mag(c2))
+            # similarity = np.dot(c1, c2) / (mag(c1) * mag(c2))
+            similarity = l2(c1, c2)
             fg_bg_similarities.append(similarity)
 
     fg_fg_similarities = []
@@ -201,24 +206,25 @@ def get_feature_similarities(
             if i == j:
                 pass
             else:
-                similarity = np.dot(c1, c2) / (mag(c1) * mag(c2))
+                # similarity = np.dot(c1, c2) / (mag(c1) * mag(c2))
+                similarity = l2(c1, c2)
                 fg_fg_similarities.append(similarity)
     return fg_bg_similarities, fg_fg_similarities
 
 
 def get_similarity_cutoff(fg_bg_similarities: List[float]) -> float:
-    bins, edges = np.histogram(fg_bg_similarities)
-    similarity_cutoff = (edges[np.argmax(bins)] + edges[np.argmax(bins) + 1]) / 2
+    bins, edges = np.histogram(fg_bg_similarities, bins=20)
+    similarity_cutoff = edges[np.argmax(bins)]  # + edges[np.argmax(bins) + 1]) / 2
     return similarity_cutoff
 
 
 def merge_foreground_clusters(
-    fg_clusters: np.ndarray, similarity_cutoff: float, offset: int = 1
+    fg_clusters: np.ndarray, distance_cutoff: float, offset: int = 1
 ) -> np.ndarray:
-    distance_cutoff = 1 - similarity_cutoff
+    # distance_cutoff = 1 - similarity_cutoff
     cluster = AgglomerativeClustering(
         n_clusters=None,
-        metric="cosine",
+        metric="euclidean",
         linkage="complete",
         distance_threshold=distance_cutoff,
     )
@@ -268,7 +274,7 @@ def multi_object_foreground_segment(
     img_tensor: torch.Tensor,
     n_cluster: int,
     crf_params: CRFParams,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     h, w, c = img_arr.shape
     seg, attn, centers = cluster(net, img_arr, img_tensor, n_cluster, True, False)
     seg = seg.reshape((h, w))
@@ -290,7 +296,8 @@ def multi_object_foreground_segment(
     )
     if np.sum(refined) < SMALL_OBJECT_AREA_CUTOFF:
         refined = unrefined
-    return refined, unrefined, density_map
+    binary = np.where(refined > 0, 1, 0)
+    return refined, unrefined, density_map, binary
 
 
 def get_bbox(arr: np.ndarray, offsets: Tuple[int, int] = (0, 0)) -> List[int]:
@@ -325,6 +332,18 @@ def multi_class_bboxes(
     for class_val in range(1, n_classes + 1):
         binary = np.where(multi_seg == class_val, 1, 0)
         bbox_arr = get_seg_bboxes(binary, offsets)
-        # print(bbox_arr.shape)
-        bbox_arrs.append(bbox_arr)
+        if bbox_arr.shape[0] == 0:
+            pass
+        else:
+            # print(bbox_arr.shape)
+            bbox_arrs.append(bbox_arr)
+    if len(bbox_arrs) == 0:
+        bbox_arrs.append(np.zeros((1, 4)))
     return np.concatenate(bbox_arrs)
+
+
+# TODO: make large bbox over single largest connected component of fg_seg
+# TODO: remove duplicate masks via non-maximum supression - maybe just check if the large bbox is within 95% IoU of any masks or not
+# TODO: track AP, AP50, AP75 /
+# TODO: track CorLoc using only the large BBOX (i.e single bbox single object detection) for comparison to DSS, etc
+# TODO: write stats to file

@@ -20,6 +20,7 @@ from hr_dv2.segment import (
     multi_object_foreground_segment,
     multi_class_bboxes,
     get_seg_bboxes,
+    get_bbox,
     default_crf_params,
 )
 from dataset import ImageDataset, Dataset, bbox_iou, extract_gt_VOC
@@ -99,7 +100,7 @@ def get_corloc(gt_bbxs, pred_bboxes) -> Tuple[bool, List[bool], List[float]]:
         match = False
         for gt_bbox in gt_bbxs:
             iou: float = bbox_iou(torch.Tensor(gt_bbox), torch.Tensor(pred_bbox))  # type: ignore
-            if iou > 0.5:
+            if iou >= 0.5:
                 corloc = True
                 match = True
             ious.append(iou)
@@ -120,6 +121,7 @@ def main() -> None:
     dataset = Dataset("VOC07", "test", True, tr.to_norm_tensor, DIR)
     corlocs = []
     best_ious = []
+    n_boxes = []
 
     img_idx: int = 0
     n_imgs = len(dataset.dataloader)
@@ -156,16 +158,20 @@ def main() -> None:
         seg = foreground_segment(net, img_arr, img, 40, default_crf_params)
         pred_bboxes = get_seg_bboxes(seg, (ox, oy))
         """
+        seg, semantic, density_map, binary = multi_object_foreground_segment(
+            net, img_arr, img, 80, default_crf_params
+        )
+        large_bbox = np.array([get_bbox(binary)])
+        pred_bboxes = multi_class_bboxes(seg, (ox, oy))
+        pred_bboxes = np.concatenate((large_bbox, pred_bboxes), axis=0)
+        # print(pred_bboxes.shape, large_bbox.shape)
+        n_boxes.append(pred_bboxes.shape[0])
+        img = img.cpu()
+
+        corloc, matches, ious = get_corloc(gt_bbxs, pred_bboxes)
+
         try:
-            seg, semantic, density_map = multi_object_foreground_segment(
-                net, img_arr, img, 80, default_crf_params
-            )
-            pred_bboxes = multi_class_bboxes(seg, (ox, oy))
-            img = img.cpu()
-
-            corloc, matches, ious = get_corloc(gt_bbxs, pred_bboxes)
-
-            if img_idx % 10 == 0 and img_idx > 0:
+            if img_idx % 1 == 0 and img_idx > 0:
                 plot_results(
                     uncropped_img_arr,
                     seg,
@@ -178,20 +184,20 @@ def main() -> None:
                     img_idx,
                 )
         except:
-            corloc = False
-            ious = [0]
+            pass
         corlocs.append(corloc)
         best_ious.append(max(ious))
 
         img_idx += 1
 
-        if img_idx % 10 == 0 and img_idx > 0:
+        if img_idx % 5 == 0 and img_idx > 0:
             avg_corloc = np.mean(corlocs)
             avg_bIoU = np.mean(best_ious)
             std_bIoU = np.std(best_ious)
             print(
                 f"{img_idx} / {n_imgs}: CorLoc={avg_corloc :.4f}, Avg Best IoU={avg_bIoU:.4f} +/- {std_bIoU}"
             )
+            print(f"Avg box number: {np.mean(n_boxes)}")
 
 
 if __name__ == "__main__":

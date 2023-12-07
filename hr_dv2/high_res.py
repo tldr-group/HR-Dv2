@@ -154,7 +154,7 @@ class HighResDV2(nn.Module):
         """
         img_list: List[torch.Tensor] = []
         if len(transforms) == 0:  # if we want to test VE by itself
-            print("Warning: no transforms supplied, using identity transform")
+            # print("Warning: no transforms supplied, using identity transform")
             self.transforms.append(iden_partial)
             self.inverse_transforms.append(iden_partial)
 
