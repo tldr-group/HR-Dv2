@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 
 matplotlib.use("Agg")
 import matplotlib.patches as patches
+import csv
 
 torch.cuda.empty_cache()
 
@@ -20,6 +21,7 @@ from hr_dv2.segment import (
     multi_object_foreground_segment,
     multi_class_bboxes,
     get_seg_bboxes,
+    largest_connected_component,
     get_bbox,
     default_crf_params,
 )
@@ -31,6 +33,8 @@ np.random.seed(2189)
 
 DIR = os.getcwd() + "/experiments/object_localization"
 PATCH_SIZE = 14
+PLOT_PER = 10
+SAVE_PER = 10
 
 
 def plot_results(
@@ -69,7 +73,6 @@ def plot_results(
     _draw_bboxes(gt_bboxes, gt_colours, img_ax)
 
     ox, oy = offset
-    print(seg.shape, img_arr.shape)
     h, w, c = seg.shape
     ih, iw, c = img_arr.shape
     dy, dx = (ih - (h + oy)), (iw - (w + ox))
@@ -92,20 +95,48 @@ def plot_results(
     plt.savefig(f"{DIR}/out/{idx}.png")
 
 
-def get_corloc(gt_bbxs, pred_bboxes) -> Tuple[bool, List[bool], List[float]]:
-    ious = []
+def save_results(save_data: List, new: bool = False) -> None:
+    with open(f"{DIR}/out/results.csv", "w+", newline="") as csvfile:
+        writer = csv.writer(csvfile)
+        if new:
+            writer.writerow(
+                ["Img idx", "Img path", "Match", "N boxes gt", "N boxes pred", "IoUs"]
+            )
+        for row in save_data:
+            img_id, img_name, match, n_gt, n_pred, ious = row
+            writer.writerow([img_id, img_name, match, n_gt, n_pred, *ious])
+
+
+def deduplicate_superbox(pred_bboxes: np.ndarray, superbox: np.ndarray) -> np.ndarray:
+    deduplicated_masks: List[np.ndarray] = [superbox]
+    for pred_bbox in pred_bboxes:
+        iou: float = bbox_iou(torch.Tensor(superbox), torch.Tensor(pred_bbox))  # type: ignore
+        if iou > 0.8:
+            pass
+        else:
+            deduplicated_masks.append(pred_bbox)
+    return np.stack(deduplicated_masks)
+
+
+def get_corloc(
+    gt_bbxs: np.ndarray, pred_bboxes: np.ndarray
+) -> Tuple[bool, List[bool], List[Tuple[int, float]]]:
+    best_ious: List[Tuple[int, float]] = []
     matches: List[bool] = []
     corloc = False
     for pred_bbox in pred_bboxes:
         match = False
+        pred_ious = []
         for gt_bbox in gt_bbxs:
             iou: float = bbox_iou(torch.Tensor(gt_bbox), torch.Tensor(pred_bbox))  # type: ignore
+            pred_ious.append(iou)
             if iou >= 0.5:
                 corloc = True
                 match = True
-            ious.append(iou)
+        best_box_iou = (int(np.argmax(pred_ious)), float(np.amax(pred_ious)))
+        best_ious.append(best_box_iou)
         matches.append(match)
-    return corloc, matches, ious
+    return corloc, matches, best_ious
 
 
 def main() -> None:
@@ -118,10 +149,11 @@ def main() -> None:
     net.cuda()
     net.eval()
 
+    # VOC07, test     VOC12, trainval
     dataset = Dataset("VOC07", "test", True, tr.to_norm_tensor, DIR)
     corlocs = []
-    best_ious = []
     n_boxes = []
+    save_data = []
 
     img_idx: int = 0
     n_imgs = len(dataset.dataloader)
@@ -133,11 +165,13 @@ def main() -> None:
         # pass if no image name
         if im_name is None:
             continue
+
         gt_bbxs, gt_cls = dataset.extract_gt(inp[1], im_name)
 
         if gt_bbxs is not None:
             # pass if no bbox
-            if gt_bbxs.shape[0] == 0:
+            n_gt_bboxes = gt_bbxs.shape[0]
+            if n_gt_bboxes == 0:
                 continue
 
         c, h, w = img.shape
@@ -154,24 +188,22 @@ def main() -> None:
         img_arr = np.array(tr.to_img(tr.unnormalize(img)))
         img = img.cuda()
 
-        """
-        seg = foreground_segment(net, img_arr, img, 40, default_crf_params)
-        pred_bboxes = get_seg_bboxes(seg, (ox, oy))
-        """
         seg, semantic, density_map, binary = multi_object_foreground_segment(
             net, img_arr, img, 80, default_crf_params
         )
-        large_bbox = np.array([get_bbox(binary)])
+        largest_connected = largest_connected_component(binary)
+        superbox = np.array(get_bbox(largest_connected, (ox, oy)))
         pred_bboxes = multi_class_bboxes(seg, (ox, oy))
-        pred_bboxes = np.concatenate((large_bbox, pred_bboxes), axis=0)
-        # print(pred_bboxes.shape, large_bbox.shape)
-        n_boxes.append(pred_bboxes.shape[0])
+        pred_bboxes = deduplicate_superbox(pred_bboxes, superbox)
+        n_pred_boxes = pred_bboxes.shape[0]
         img = img.cpu()
 
         corloc, matches, ious = get_corloc(gt_bbxs, pred_bboxes)
+        corlocs.append(corloc)
+        n_boxes.append(n_pred_boxes)
 
         try:
-            if img_idx % 1 == 0 and img_idx > 0:
+            if img_idx % PLOT_PER == 0 and img_idx > 0:
                 plot_results(
                     uncropped_img_arr,
                     seg,
@@ -185,19 +217,18 @@ def main() -> None:
                 )
         except:
             pass
-        corlocs.append(corloc)
-        best_ious.append(max(ious))
 
+        data = [img_idx, im_name, corloc, n_gt_bboxes, n_pred_boxes, ious]
+        save_data.append(data)
         img_idx += 1
-
-        if img_idx % 5 == 0 and img_idx > 0:
+        if img_idx % SAVE_PER == 0 and img_idx > 0:
             avg_corloc = np.mean(corlocs)
-            avg_bIoU = np.mean(best_ious)
-            std_bIoU = np.std(best_ious)
             print(
-                f"{img_idx} / {n_imgs}: CorLoc={avg_corloc :.4f}, Avg Best IoU={avg_bIoU:.4f} +/- {std_bIoU}"
+                f"{img_idx} / {n_imgs}: CorLoc={avg_corloc :.4f} with {np.mean(n_boxes) :.4f} boxes"
             )
-            print(f"Avg box number: {np.mean(n_boxes)}")
+            new_file = img_idx == SAVE_PER
+            save_results(save_data, new_file)
+            save_data = []
 
 
 if __name__ == "__main__":

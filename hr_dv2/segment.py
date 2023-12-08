@@ -342,8 +342,17 @@ def multi_class_bboxes(
     return np.concatenate(bbox_arrs)
 
 
-# TODO: make large bbox over single largest connected component of fg_seg
-# TODO: remove duplicate masks via non-maximum supression - maybe just check if the large bbox is within 95% IoU of any masks or not
-# TODO: track AP, AP50, AP75 /
-# TODO: track CorLoc using only the large BBOX (i.e single bbox single object detection) for comparison to DSS, etc
-# TODO: write stats to file
+def largest_connected_component(arr: np.ndarray) -> np.ndarray:
+    separated, n_components = label(arr, return_num=True)
+    sizes: List[int] = []
+    for i in range(1, n_components + 1):
+        current_obj = np.where(separated == i, 1, 0).astype(np.uint8)
+        n_pixels = int(np.sum(current_obj))
+        sizes.append(n_pixels)
+    largest_class = np.argmax(sizes) + 1
+    return np.where(separated == largest_class, 1, 0)
+
+
+# TODO: comment this file
+# TODO: delete old notebooks
+# TODO: merge onto main
