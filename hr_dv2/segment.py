@@ -360,11 +360,11 @@ def foreground_segment(
     density_map, densities = get_attn_density(seg, sum_cls)
     cutoff = get_attn_cutoff(densities, 2)
     fg_seg = (density_map > cutoff).astype(np.uint8)
-    refined, unrefined = do_crf_from_labels(fg_seg, img_arr, 2, crf_params)
+    refined = do_crf_from_labels(fg_seg, img_arr, 2, crf_params)
     # if crf fails, fall back on (thresholded) attn denisty map
     if np.sum(refined) < SMALL_OBJECT_AREA_CUTOFF:
         refined = fg_seg
-    return refined, density_map, unrefined
+    return refined, density_map, fg_seg
 
 
 def multi_object_foreground_segment(

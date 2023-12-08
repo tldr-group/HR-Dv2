@@ -122,7 +122,6 @@ def get_flip_transforms() -> Tuple[PartialTrs, PartialTrs]:
     return transforms, inv_tranforms
 
 
-# TODO: add rotations!!
 def get_rotation_transforms() -> Tuple[PartialTrs, PartialTrs]:
     def rot_arg_rev(dims: Tuple[int, ...], k: int, x: torch.Tensor) -> torch.Tensor:
         if len(x.shape) == 3:  # batch
@@ -240,6 +239,7 @@ def closest_pad(h: int, w: int, patch_size: int = 14) -> transforms.Compose:
 
 
 to_img = transforms.ToPILImage()
+to_tensor = transforms.ToTensor()
 
 
 def load_image(
