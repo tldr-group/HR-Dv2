@@ -202,16 +202,38 @@ def centre_crop(crop_h: int, crop_w: int) -> transforms.Compose:
     return transform
 
 
-def closest_crop(h: int, w: int, patch_size: int = 14) -> transforms.Compose:
+def closest_crop(
+    h: int, w: int, patch_size: int = 14, to_tensor: bool = True
+) -> transforms.Compose:
     # Crop to h,w values that are closest to given patch/stride size
     sub_h: int = h % patch_size
     sub_w: int = w % patch_size
     new_h, new_w = h - sub_h, w - sub_w
+    if to_tensor:
+        transform = transforms.Compose(
+            [
+                transforms.CenterCrop((new_h, new_w)),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)
+                ),
+            ]
+        )
+    else:
+        transform = transforms.Compose(
+            [
+                transforms.CenterCrop((new_h, new_w)),
+            ]
+        )
+    return transform
+
+
+def closest_pad(h: int, w: int, patch_size: int = 14) -> transforms.Compose:
+    add_h: int = patch_size - (h % patch_size)
+    add_w: int = patch_size - (w % patch_size)
     transform = transforms.Compose(
         [
-            transforms.CenterCrop((new_h, new_w)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+            transforms.Pad((add_w, add_h, 0, 0)),
         ]
     )
     return transform

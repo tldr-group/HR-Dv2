@@ -36,6 +36,11 @@ pip install -r dinov2/requirements.txt -r dinov2/requirements-dev.txt
 pip install -e .
 ```
 
+### PATHS:
+Two possible 'paths'
+1) fuse color matting matrix $\psi = \cos{c_{H}, \sin{c_{H}}, c_{s}, c_{v}, p_{x}, p_{y}}$ with a 5-component PCA of HR-Dv2 features and perform clustering
+2) use attention maps to find foreground objects. cluster only foreground features? 
+
 ### TODO:
 - [x] Rewrite the code to use any transformation (list of partial functions & their inverse) and integrate VE code, storing original Dv2 stride and positional encoding code to re-enable later
 - [x] Break up utils into more meaningful files (plotting, converting *etc.*) and add docstrings
@@ -45,16 +50,16 @@ pip install -e .
 - [x] Integrate into SAMBA/trainable segmentation platform?
 - [x] High-res video (maybe try on big PC)
 - [x] Add rotation transforms, test in microstructure
-- [ ] Add option to use different ViTs (like DINO or SAM)
 - [x] Visualise CLS/Attention maps, also high-res them if cheap. Try use that for fg/bg detection
-- [ ] Try combining classical and NN features?
+- [x] Test automated 1st PCA component/fg threshold finding using entropy per unit area
+- [ ] Use FAISS for faster k-means
+- [ ] Add option to use q,k or v values from attention of CLS (& compare perf)
+- [ ] Add option to use different ViTs (like DINO or SAM)
 - [ ] Measure and plot memory footprints of each method
-- [ ] Test automated 1st PCA component/fg threshold finding using entropy per unit area 
-- [ ] Test semantic segmentation via PCA -> NMF/kmeans of foreground features
-- [ ] Test (& visualise) co-segmentation with clustering across shared (potentially PCA'd) feature space
-- [ ] Evaluation of foreground segmentation on Pascal VOC12, compare to DINO, upscaled Dv2
+- [ ] Evaluation of object localization on VOC, compare w/ "Deep spectral methods', MOST, LOST
+- [ ] Evaluation of foreground segmentation on CUBS, compare w/ "Deep spectral methods'
 - [ ] Evalutation of semantic segmentation on Pascal VOC12, compare w/ 'Deep spectral Methods ...' 
-- [ ] Evaluation co-segmentation performance on Berkely UCSD Birds dataset, comparison to 'Deep ViT Features as Dense Visual Descriptors'
+- [ ] Evaluation co-segmentation performance on CUBS, comparison to 'Deep ViT Features as Dense Visual Descriptors'
 
 
 ## Links
