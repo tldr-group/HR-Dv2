@@ -94,6 +94,20 @@ default_crf_params = CRFParams()
 def do_crf_from_labels(
     labels_arr: np.ndarray, img_arr: np.ndarray, n_classes: int, crf: CRFParams
 ) -> np.ndarray:
+    """Given a multiclass (foreground) segmentation and orignal image arr,
+    refine using a conditional random field with set parameters.
+
+    :param labels_arr: arr shape (h, w) where each entry is class
+    :type labels_arr: np.ndarray
+    :param img_arr: img arr shape (h, w, 3)
+    :type img_arr: np.ndarray
+    :param n_classes: number of classes
+    :type n_classes: int
+    :param crf: parameters for CRF
+    :type crf: CRFParams
+    :return: refined segmentation, shape (h, w, 1)
+    :rtype: np.ndarray
+    """
     h, w, c = img_arr.shape
     unary = unary_from_labels(
         labels_arr, n_classes, crf.label_confidence, zero_unsure=False
@@ -491,8 +505,3 @@ def largest_connected_component(arr: np.ndarray) -> np.ndarray:
         sizes.append(n_pixels)
     largest_class = np.argmax(sizes) + 1
     return np.where(separated == largest_class, 1, 0)
-
-
-# TODO: comment this file
-# TODO: delete old notebooks
-# TODO: merge onto main
