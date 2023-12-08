@@ -162,6 +162,8 @@ cython_debug/
 *data/*
 *experiments/object_localization/datasets/*
 *experiments/object_localization/out/*
+*experiments/object_segmentation/datasets/*
+*experiments/object_segmentation/out/*
 *dinov2/*
 *.venv*
 *.vscode*

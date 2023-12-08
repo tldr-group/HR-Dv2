@@ -101,7 +101,7 @@ def get_entropy_img(arr: np.ndarray, k: int = 10) -> np.ndarray:
 def entropy_per_area(mask: np.ndarray, entropy_img: np.ndarray) -> float:
     n_fg: int = np.sum(mask)
     total_entropy = np.sum(entropy_img * mask)
-    return total_entropy / n_fg
+    return float(total_entropy / n_fg)
 
 
 def get_best_mask(

@@ -26,8 +26,7 @@ def get_dv2_features(
     flatten: bool = True,
     sequential: bool = False,
 ) -> np.ndarray:
-    """Given a HR-DV2 net with set transforms, get features. Either
-    # Use for high memory (large image and/or n_transforms) situations.
+    """Given a HR-DV2 net with set transforms, get features.
 
     :param net: net to get features from
     :type net: HighResDV2
@@ -95,6 +94,20 @@ default_crf_params = CRFParams()
 def do_crf_from_labels(
     labels_arr: np.ndarray, img_arr: np.ndarray, n_classes: int, crf: CRFParams
 ) -> np.ndarray:
+    """Given a multiclass (foreground) segmentation and orignal image arr,
+    refine using a conditional random field with set parameters.
+
+    :param labels_arr: arr shape (h, w) where each entry is class
+    :type labels_arr: np.ndarray
+    :param img_arr: img arr shape (h, w, 3)
+    :type img_arr: np.ndarray
+    :param n_classes: number of classes
+    :type n_classes: int
+    :param crf: parameters for CRF
+    :type crf: CRFParams
+    :return: refined segmentation, shape (h, w, 1)
+    :rtype: np.ndarray
+    """
     h, w, c = img_arr.shape
     unary = unary_from_labels(
         labels_arr, n_classes, crf.label_confidence, zero_unsure=False
@@ -130,6 +143,23 @@ def cluster(
     get_attn: bool = True,
     verbose: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Get and (over) cluster ViT features and optionally return attention.
+
+    :param net: ViT to extract features from
+    :type net: HighResDV2
+    :param img_arr: original img arr, shape (h, w, 3)
+    :type img_arr: np.ndarray
+    :param img_tensor: tensor of img, shape (3, h, w)
+    :type img_tensor: torch.Tensor
+    :param n_clusters: number of k-means clusters
+    :type n_clusters: int
+    :param get_attn: get attention map of ViT, defaults to True
+    :type get_attn: bool, optional
+    :param verbose: whether to print timings, defaults to False
+    :type verbose: bool, optional
+    :return: cluster assignment arr, attn map, cluster centroids
+    :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
+    """
     start = time()
     attn: np.ndarray
     if get_attn:
@@ -162,6 +192,16 @@ def cluster(
 def get_attn_density(
     labels_arr: np.ndarray, attn: np.ndarray
 ) -> Tuple[np.ndarray, List[float]]:
+    """For each cluster, get attention per unit area and return a density arr
+    where each entry is the pixel's cluster attention density.
+
+    :param labels_arr: arr shape (h, w) where each entry is the cluster index
+    :type labels_arr: np.ndarray
+    :param attn: arr shape (h, w) of the attention (usually sum(CLS))
+    :type attn: np.ndarray
+    :return: attention density map and list of all cluster densities
+    :rtype: Tuple[np.ndarray, List[float]]
+    """
     densities = []
     attention_density_map = np.zeros_like(labels_arr).astype(np.float64)
     n_clusters = np.amax(labels_arr)
@@ -193,26 +233,41 @@ def l2(v1: np.ndarray, v2: np.ndarray) -> np.ndarray:
 def get_feature_similarities(
     fg_clusters: np.ndarray, bg_clusters: np.ndarray
 ) -> Tuple[List[float], List[float]]:
-    fg_bg_similarities = []
+    """Get list of all fg <-> bg and fg <-> fg similarities for merging later. O(n^2).
+
+    :param fg_clusters: all foreground cluster centres
+    :type fg_clusters: np.ndarray
+    :param bg_clusters: all background cluster centres
+    :type bg_clusters: np.ndarray
+    :return: fg <-> bg similarities, fg <-> fg similarities
+    :rtype: Tuple[List[float], List[float]]
+    """
+    fg_bg_similarities: List[float] = []
     for i, c1 in enumerate(fg_clusters):
         for j, c2 in enumerate(bg_clusters):
-            # similarity = np.dot(c1, c2) / (mag(c1) * mag(c2))
-            similarity = l2(c1, c2)
+            similarity = float(l2(c1, c2))
             fg_bg_similarities.append(similarity)
 
-    fg_fg_similarities = []
+    fg_fg_similarities: List[float] = []
     for i, c1 in enumerate(fg_clusters):
         for j, c2 in enumerate(fg_clusters):
             if i == j:
                 pass
             else:
-                # similarity = np.dot(c1, c2) / (mag(c1) * mag(c2))
-                similarity = l2(c1, c2)
+                similarity = float(l2(c1, c2))
                 fg_fg_similarities.append(similarity)
     return fg_bg_similarities, fg_fg_similarities
 
 
 def get_similarity_cutoff(fg_bg_similarities: List[float]) -> float:
+    """Get similarity cutoff/distance threshold from max of foreground/
+    background distribution.
+
+    :param fg_bg_similarities: flat list of similarites of all foreground and background clusters.
+    :type fg_bg_similarities: List[float]
+    :return: similarity cutoff
+    :rtype: float
+    """
     bins, edges = np.histogram(fg_bg_similarities, bins=20)
     similarity_cutoff = edges[np.argmax(bins)]  # + edges[np.argmax(bins) + 1]) / 2
     return similarity_cutoff
@@ -221,6 +276,18 @@ def get_similarity_cutoff(fg_bg_similarities: List[float]) -> float:
 def merge_foreground_clusters(
     fg_clusters: np.ndarray, distance_cutoff: float, offset: int = 1
 ) -> np.ndarray:
+    """Merge foreground clusters with agglomerative clustering based on
+    a similarity threshold (determined from fg/bg distribution).
+
+    :param fg_clusters: foreground cluster centres
+    :type fg_clusters: np.ndarray
+    :param distance_cutoff: threshold above which clusters not merged
+    :type distance_cutoff: float
+    :param offset: value to add to returned classes, defaults to 1
+    :type offset: int, optional
+    :return: class predictions for each foreground cluster
+    :rtype: np.ndarray
+    """
     # distance_cutoff = 1 - similarity_cutoff
     cluster = AgglomerativeClustering(
         n_clusters=None,
@@ -239,6 +306,22 @@ def split_foreground_and_refine(
     img_arr: np.ndarray,
     crf_params: CRFParams,
 ) -> Tuple[np.ndarray, np.ndarray]:
+    """Replace foreground clusters in clustered_arr with their
+    merged values and refine it with a crf.
+
+    :param fg_mask: arr of which clusters are foreground clusters
+    :type fg_mask: np.ndarray
+    :param fg_clustered: merged foreground cluster class assignments
+    :type fg_clustered: np.ndarray
+    :param clustered_arr: (h, w) arr where each entry is its cluster
+    :type clustered_arr: np.ndarray
+    :param img_arr: original img arr, shape (h, w, 3)
+    :type img_arr: np.ndarray
+    :param crf_params: set of parameters for segmentation refinement
+    :type crf_params: CRFParams
+    :return: refined multiclass foreground segmentation, unrefined multiclass foreground segmentation
+    :rtype: Tuple[np.ndarray, np.ndarray]
+    """
     out = np.zeros_like(clustered_arr)
     for i, val in enumerate(fg_mask):
         current_obj = np.where(clustered_arr == val, fg_clustered[i], 0)
@@ -254,6 +337,22 @@ def foreground_segment(
     n_cluster: int,
     crf_params: CRFParams,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Foreground segmentation using attention density.
+
+    :param net: ViT to extract features from
+    :type net: HighResDV2
+    :param img_arr: array of img, shape (h, w, 3)
+    :type img_arr: np.ndarray
+    :param img_tensor: tensor of img, shape (3, h, w)
+    :type img_tensor: torch.Tensor
+    :param n_cluster: number of k-means clusters
+    :type n_cluster: int
+    :param crf_params: set of parameters for segmentation refinement
+    :type crf_params: CRFParams
+    :return: refined merged foreground clusters,
+            attn density map, unrefined merged foreground clusters
+    :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
+    """
     h, w, c = img_arr.shape
     seg, attn, _ = cluster(net, img_arr, img_tensor, n_cluster, True, False)
     seg = seg.reshape((h, w))
@@ -275,6 +374,29 @@ def multi_object_foreground_segment(
     n_cluster: int,
     crf_params: CRFParams,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Clustering based multi-object localization:
+
+    1) get high res features and attn from ViT
+    2) over cluster to K=n_cluster clusters
+    3) find foreground clusters using attn density
+    4) find semantic threshold using foreground vs background similarities
+    5) merge foreground clusters using semantic threshold
+    6) refine merged clusters into a (h, w) multiclass segmentation
+
+    :param net: ViT to extract features from
+    :type net: HighResDV2
+    :param img_arr: array of img, shape (h, w, 3)
+    :type img_arr: np.ndarray
+    :param img_tensor: tensor of img, shape (3, h, w)
+    :type img_tensor: torch.Tensor
+    :param n_cluster: number of k-means clusters
+    :type n_cluster: int
+    :param crf_params: set of parameters for segmentation refinement
+    :type crf_params: CRFParams
+    :return: refined merged foreground clusters, unrefined merged foreground clusters,
+            attn density map, binary foreground segmentation
+    :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+    """
     h, w, c = img_arr.shape
     seg, attn, centers = cluster(net, img_arr, img_tensor, n_cluster, True, False)
     seg = seg.reshape((h, w))
@@ -301,6 +423,15 @@ def multi_object_foreground_segment(
 
 
 def get_bbox(arr: np.ndarray, offsets: Tuple[int, int] = (0, 0)) -> List[int]:
+    """Get bbox of binary arr by looking at min/max x/y.
+
+    :param arr: binary array shape (h, w)
+    :type arr: np.ndarray
+    :param offsets: bbox offsets (if img cropped), defaults to (0, 0)
+    :type offsets: Tuple[int, int], optional
+    :return: bbox in form x0 y0 x1 y1
+    :rtype: List[int]
+    """
     idxs = np.nonzero(arr)
     y_min, y_max = np.amin(idxs[0]), np.amax(idxs[0])
     x_min, x_max = np.amin(idxs[1]), np.amax(idxs[1])
@@ -312,6 +443,15 @@ def get_bbox(arr: np.ndarray, offsets: Tuple[int, int] = (0, 0)) -> List[int]:
 
 
 def get_seg_bboxes(fg_seg: np.ndarray, offsets: Tuple[int, int] = (0, 0)) -> np.ndarray:
+    """Get bbox around each isolated component of binary arr.
+
+    :param fg_seg: binary arr shape (h, w)
+    :type fg_seg: np.ndarray
+    :param offsets: bbox offsets (if img cropped), defaults to (0, 0)
+    :type offsets: Tuple[int, int], optional
+    :return: bboxes for each isolated component shape (n_bbox, 4)
+    :rtype: np.ndarray
+    """
     bboxes: List[List[int]] = []
     separated, n_components = label(fg_seg, return_num=True)  # type: ignore
     for i in range(1, n_components + 1):
@@ -320,13 +460,21 @@ def get_seg_bboxes(fg_seg: np.ndarray, offsets: Tuple[int, int] = (0, 0)) -> np.
             obj_bbox = get_bbox(current_obj, offsets)
             bboxes.append(obj_bbox)
     bboxes_arr = np.array(bboxes)
-    # print(bboxes_arr.shape)
     return bboxes_arr
 
 
 def multi_class_bboxes(
     multi_seg: np.ndarray, offsets: Tuple[int, int] = (0, 0)
 ) -> np.ndarray:
+    """For a multiclass arr with background 0, get bboxes for each class.
+
+    :param multi_seg: multiclass arr shape (h, w)
+    :type multi_seg: np.ndarray
+    :param offsets: bbox offsets (if img cropped), defaults to (0, 0)
+    :type offsets: Tuple[int, int], optional
+    :return: arr of bboxes, shape (n_bbox, 4)
+    :rtype: np.ndarray
+    """
     n_classes = int(np.amax(multi_seg))
     bbox_arrs: List[np.ndarray] = []
     for class_val in range(1, n_classes + 1):
@@ -335,7 +483,6 @@ def multi_class_bboxes(
         if bbox_arr.shape[0] == 0:
             pass
         else:
-            # print(bbox_arr.shape)
             bbox_arrs.append(bbox_arr)
     if len(bbox_arrs) == 0:
         bbox_arrs.append(np.zeros((1, 4)))
@@ -343,7 +490,14 @@ def multi_class_bboxes(
 
 
 def largest_connected_component(arr: np.ndarray) -> np.ndarray:
-    separated, n_components = label(arr, return_num=True)
+    """Get largest connected component of binary array via skimage label.
+
+    :param arr: binary arr shape (h, w)
+    :type arr: np.ndarray
+    :return: binary arr shape (h, w)
+    :rtype: np.ndarray
+    """
+    separated, n_components = label(arr, return_num=True)  # type: ignore
     sizes: List[int] = []
     for i in range(1, n_components + 1):
         current_obj = np.where(separated == i, 1, 0).astype(np.uint8)
@@ -351,8 +505,3 @@ def largest_connected_component(arr: np.ndarray) -> np.ndarray:
         sizes.append(n_pixels)
     largest_class = np.argmax(sizes) + 1
     return np.where(separated == largest_class, 1, 0)
-
-
-# TODO: comment this file
-# TODO: delete old notebooks
-# TODO: merge onto main
