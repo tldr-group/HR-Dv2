@@ -18,14 +18,16 @@ with open(IMG_LIST_PATH, "r") as f:
 with open(TEST_TRAIN_PATH, "r") as f:
     img_test_train_strs = f.read().splitlines()
 
+
+test_idx = 0
 for i, string in enumerate(img_strs):
     idx, path = string.split(" ")
     name = path[:-4]
     img_path = f"{CUB}images/{path}"
     seg_path = f"{CUB}segmentations/{name}.png"
 
-    out_img_path = f"{CUB}test_images/{i}.jpg"
-    out_seg_path = f"{CUB}test_segmentations/{i}.png"
+    out_img_path = f"{CUB}test_images/{test_idx}.jpg"
+    out_seg_path = f"{CUB}test_segmentations/{test_idx}.png"
 
     test_int = int(img_test_train_strs[i][-1])
     test: bool = True if test_int else False
@@ -33,3 +35,4 @@ for i, string in enumerate(img_strs):
     if test:
         copyfile(img_path, out_img_path)
         copyfile(seg_path, out_seg_path)
+        test_idx += 1
