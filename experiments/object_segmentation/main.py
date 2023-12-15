@@ -29,14 +29,15 @@ np.random.seed(2189)
 
 CWD = os.getcwd()
 DIR = f"{CWD}/experiments/object_segmentation/"
-CUB = f"{CWD}/experiments/object_segmentation/datasets/CUB_200_2011/"
-IMGS = f"{CUB}/test_images/"
-SEGS = f"{CUB}/test_segmentations/"
+# DATA_DIR = f"{CWD}/experiments/object_segmentation/datasets/CUB_200_2011"
+DATA_DIR = f"{CWD}/experiments/object_segmentation/datasets/both/"
+IMGS = f"{DATA_DIR}test_images/"
+SEGS = f"{DATA_DIR}test_segmentations/"
 
 PATCH_SIZE = 14
-PLOT_PER = 10
-SAVE_PER = 5
-N_IMGS = 5994
+PLOT_PER = 1
+SAVE_PER = 1
+N_IMGS = len(os.listdir(IMGS))
 
 
 def compute_iou(pred, target):
@@ -135,7 +136,7 @@ def main():
         )
         img = img.cpu()
         refined = np.squeeze(refined, -1)
-        refined = largest_connected_component(refined)
+        # refined = largest_connected_component(refined)
 
         # same as in DSS for comparison
         gt = np.where(seg_arr > 0.5, 1, 0)  # np.zeros_like(refined) +
