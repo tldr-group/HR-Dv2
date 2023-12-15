@@ -142,7 +142,7 @@ def cluster(
     n_clusters: int,
     get_attn: bool = True,
     verbose: bool = False,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Get and (over) cluster ViT features and optionally return attention.
 
     :param net: ViT to extract features from
@@ -186,7 +186,8 @@ def cluster(
     end = time()
     if verbose:
         print(f"Finished in {end-start}s")
-    return labels, attn, cluster.cluster_centers_
+    # TODO: return features here as well
+    return labels, attn, cluster.cluster_centers_, features
 
 
 def get_attn_density(
@@ -216,9 +217,10 @@ def get_attn_density(
 
 
 def get_attn_cutoff(densities: np.ndarray | List[float], offset: int = 2) -> float:
-    n, bins = np.histogram(densities, bins=10)
-    max_loc = int(np.argmax(n))
-    cutoff = bins[max_loc + offset]
+    # n, bins = np.histogram(densities, bins=10)
+    # max_loc = int(np.argmax(n))
+    # cutoff = bins[max_loc + offset]
+    cutoff = float(np.mean(densities))
     return cutoff
 
 
@@ -362,8 +364,8 @@ def foreground_segment(
     fg_seg = (density_map > cutoff).astype(np.uint8)
     refined = do_crf_from_labels(fg_seg, img_arr, 2, crf_params)
     # if crf fails, fall back on (thresholded) attn denisty map
-    if np.sum(refined) < SMALL_OBJECT_AREA_CUTOFF:
-        refined = fg_seg
+    # if np.sum(refined) < SMALL_OBJECT_AREA_CUTOFF:
+    #    refined = fg_seg
     return refined, density_map, fg_seg
 
 
