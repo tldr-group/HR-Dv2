@@ -356,7 +356,9 @@ def foreground_segment(
     :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
     """
     h, w, c = img_arr.shape
-    seg, attn, _ = cluster(net, img_arr, img_tensor, n_cluster, True, False)
+    seg, attn, centres, features = cluster(
+        net, img_arr, img_tensor, n_cluster, True, False
+    )
     seg = seg.reshape((h, w))
     sum_cls = np.sum(attn, axis=0)
     density_map, densities = get_attn_density(seg, sum_cls)
