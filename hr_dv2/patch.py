@@ -1,5 +1,6 @@
 """Patch the various methods of classes and subclasses in the Vision Transformer to add ]
 new features like overlapping patches and attention visualisation"""
+
 import torch
 import torch.nn.functional as F
 import math
