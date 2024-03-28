@@ -173,6 +173,9 @@ def cluster(
         net.set_transforms(fwd, inv)
     else:
         attn = np.zeros_like(img_arr)
+    # TODO: find a way to get attention and features out in a single forward pass: maybe by including unperturbed
+    # Maybe by assuming it's always batched and we only want attention of first item in batch
+    # How can we
     hr_tensor, _ = net.forward(img_tensor, attn="none")
     features: np.ndarray
     b, c, fh, fw = hr_tensor.shape
@@ -180,6 +183,7 @@ def cluster(
     reshaped = features.reshape((c, fh * fw)).T
 
     normed = normalise_pca(reshaped)
+    # TODO: add a fast PCA in here?
 
     cluster = KMeans(n_clusters=n_clusters, n_init="auto", max_iter=300)
     labels = cluster.fit_predict(normed)
@@ -260,8 +264,7 @@ def get_attn_density(
     """
     densities = []
     attention_density_map = np.zeros_like(labels_arr).astype(np.float64)
-    n_clusters = np.amax(labels_arr)
-    for n in range(n_clusters):
+    for n in np.unique(labels_arr):
         binary_mask = np.where(labels_arr == n, 1, 0)
         n_pix = np.sum(binary_mask)
         cluster_attn = np.sum(attn * binary_mask)
