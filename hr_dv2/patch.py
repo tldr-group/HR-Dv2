@@ -107,11 +107,13 @@ class Patch:
             attn = self.attn_drop(attn)
 
             if return_attn:
+                # print(attn.shape)
                 return attn
 
             x = (attn @ v).transpose(1, 2).reshape(B, N, C)
             x = self.proj(x)
             x = self.proj_drop(x)
+            # print(x.shape)
             return x
 
         return forward
@@ -141,7 +143,13 @@ class Patch:
 
             x = memory_efficient_attention(q, k, v, attn_bias=attn_bias)
             if return_attn:
+
                 attn = x.permute(0, 2, 1, 3) @ v.permute(0, 2, 3, 1)
+                b, n_heads, n_tokens, _ = attn.shape
+                token_attention = attn[:, :, 0, 5:].reshape(b, n_heads, -1)
+                print(q.shape, k.shape, v.shape)
+                # TODO: just return q, k or v concat to the end of x
+                # slice and average in here, domn't early return but concat onto the end of x (should be same size)
                 return attn
             x = x.reshape([B, N, C])
 
