@@ -239,6 +239,7 @@ class HighResDV2(nn.Module):
         all_attention = torch.permute(all_attention, (0, 2, 1))
         if self.dtype != torch.float32:
             all_attention = all_attention.to(self.dtype)
+        print(all_attention.shape)
         return all_attention
 
     @torch.no_grad()
@@ -298,6 +299,8 @@ class HighResDV2(nn.Module):
         self, x: torch.Tensor, attn: AttentionOptions = "none"
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Feed input img $x through network and get low and high res features.
+        TODO: rewrite to always return low-res attn as well, then just resize later?
+        TODO: remove low res-forward pass as not needed - replace with attn?
 
         :param x: unbatched image tensor
         :type x: torch.Tensor

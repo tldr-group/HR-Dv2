@@ -100,11 +100,11 @@ def save_results(save_data: List, new: bool = False) -> None:
         writer = csv.writer(csvfile)
         if new:
             writer.writerow(
-                ["Img idx", "Img path", "Match", "N boxes gt", "N boxes pred", "IoUs"]
+                ["Img idx", "Match", "N boxes gt", "N boxes pred", "Img path", "IoUs"]
             )
         for row in save_data:
             img_id, img_name, match, n_gt, n_pred, ious = row
-            writer.writerow([img_id, img_name, match, n_gt, n_pred, *ious])
+            writer.writerow([img_id, match, n_gt, n_pred, img_name, *ious])
 
 
 def deduplicate_superbox(pred_bboxes: np.ndarray, superbox: np.ndarray) -> np.ndarray:
