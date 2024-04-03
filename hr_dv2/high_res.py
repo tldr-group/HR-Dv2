@@ -16,7 +16,7 @@ from typing import List, Tuple, Callable, TypeAlias, Literal
 Interpolation: TypeAlias = Literal[
     "nearest", "linear", "bilinear", "bicubic", "trilinear", "area", "nearest-exact"
 ]
-AttentionOptions: TypeAlias = Literal["cls", "reg", "both", "none"]
+AttentionOptions: TypeAlias = Literal["q", "k", "v", "o", "none"]
 
 
 # ==================== MODULE ====================
@@ -47,6 +47,7 @@ class HighResDV2(nn.Module):
         self.n_register_tokens = 4
 
         self.stride = _pair(stride)
+        self.set_model_stride(self.dinov2, patch)
         self.set_model_stride(self.dinov2, stride)
 
         self.transforms: List[partial] = []
@@ -119,8 +120,8 @@ class HighResDV2(nn.Module):
         attn_block = final_block.attn  # type: ignore
         attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
         final_block.forward = MethodType(Patch._fix_block_forward(), final_block)  # type: ignore
-        dino_model.get_last_self_attention = MethodType(  # type: ignore
-            Patch._add_forward_attn(), dino_model
+        dino_model.forward_feats_attn = MethodType(  # type: ignore
+            Patch._add_new_forward_features(), dino_model
         )
 
     def get_n_patches(self, img_h: int, img_w: int) -> Tuple[int, int]:
@@ -259,8 +260,7 @@ class HighResDV2(nn.Module):
         :rtype: torch.Tensor
         """
         _, img_h, img_w = x.shape
-        c = feature_batch.shape[-1]  # self.feat_dim
-        # print(feature_batch.shape)
+        c = feature_batch.shape[-1]
         stride_l = self.stride[0]
         n_patch_w: int = 1 + (img_w - self.original_patch_size) // stride_l
         n_patch_h: int = 1 + (img_h - self.original_patch_size) // stride_l
@@ -280,6 +280,7 @@ class HighResDV2(nn.Module):
             feat_patch_flat = feature_batch[i]
             # interp expects batched spatial tensors so reshape and unsqueeze
             feat_patch = feat_patch_flat.view((n_patch_h, n_patch_w, c))
+
             permuted = feat_patch.permute((2, 0, 1)).unsqueeze(0)
 
             full_size = F.interpolate(
@@ -296,11 +297,9 @@ class HighResDV2(nn.Module):
 
     @torch.no_grad()
     def forward(
-        self, x: torch.Tensor, attn: AttentionOptions = "none"
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        self, x: torch.Tensor, attn_choice: AttentionOptions = "none"
+    ) -> torch.Tensor:
         """Feed input img $x through network and get low and high res features.
-        TODO: rewrite to always return low-res attn as well, then just resize later?
-        TODO: remove low res-forward pass as not needed - replace with attn?
 
         :param x: unbatched image tensor
         :type x: torch.Tensor
@@ -310,20 +309,22 @@ class HighResDV2(nn.Module):
         x.requires_grad = self.track_grad
         if self.dtype != torch.float32:  # cast (i.e to f16)
             x = x.type(self.dtype)
+        # tmp_l = self.stride[0]
+        # self.set_model_stride(self.dinov2, tmp_l)
+
         img_batch = self.get_transformed_input_batch(x, self.transforms)
-
-        # this is unweildy, might need a change
-        temp_stride = self.stride
-
-        low_res_features = self.get_dv2_features(
-            x.unsqueeze(0), self.original_stride[0]
-        )
-        if attn == "none":
-            features_batch = self.get_dv2_features(img_batch, temp_stride[0])
+        out_dict = self.dinov2.forward_feats_attn(img_batch, None, attn_choice)  # type: ignore
+        if attn_choice != "none":
+            feats, attn = out_dict["x_norm_patchtokens"], out_dict["x_patchattn"]
+            features_batch = torch.concat((feats, attn), dim=-1)
         else:
-            features_batch = self.get_dv2_attn(img_batch, temp_stride[0], attn)
+            features_batch = out_dict["x_norm_patchtokens"]
+
+        if self.dtype != torch.float32:  # cast (i.e to f16)
+            features_batch = features_batch.type(self.dtype)
+
         upsampled_features = self.invert_transforms(features_batch, x)
-        return upsampled_features, low_res_features
+        return upsampled_features
 
     @torch.no_grad()
     def forward_sequential(
