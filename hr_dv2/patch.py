@@ -29,6 +29,7 @@ def get_qkvo_per_head(
     v: torch.Tensor,
     x_a: torch.Tensor,
     which: AttentionOptions,
+    drop_fn: Callable,
 ) -> torch.Tensor:
     """Return either the mean q, k, v per head for tokens or the attn for the CLS
     token per head. Note that using mem eff attn means we need to explicitly
@@ -62,10 +63,15 @@ def get_qkvo_per_head(
             prim = prims[mapping.index(which)]
             per_head = prim.sum(dim=-1)
         case "o":
-            attn = x_a.permute(0, 2, 1, 3) @ v.permute(0, 2, 3, 1)
-            per_head = attn[:, :, 0].permute(0, 2, 1)
+            B, T, nH, _ = q.shape
+            # we only care about (and compute) attn of [CLS] token
+            x_a_cls = x_a[:, 0, :, :]
+            x_a_cls = x_a_cls[:, None, :, :]
+            cls_attn = x_a_cls.permute(0, 2, 1, 3) @ v.permute(0, 2, 3, 1)
+            cls_attn = cls_attn.squeeze(2).permute(0, 2, 1)
+            per_head = cls_attn.reshape([B, T, nH])
         case _:
-            raise Exception("not valid route")
+            raise Exception("not valid attention option")
     return per_head
 
 
@@ -191,17 +197,17 @@ class Patch:
             qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
 
             q, k, v = unbind(qkv, 2)
+            x = memory_efficient_attention(q, k, v, attn_bias=attn_bias)
+            to_append: torch.Tensor
+            if attn_choice != "none":
+                to_append = get_qkvo_per_head(q, k, v, x, attn_choice, self.attn_drop)
 
-            x_a = memory_efficient_attention(q, k, v, attn_bias=attn_bias)
-            x = x_a.reshape([B, N, C])
+            x = x.reshape([B, N, C])
 
             x = self.proj(x)
             x = self.proj_drop(x)
 
-            to_append: torch.Tensor
             if attn_choice != "none":
-                to_append = get_qkvo_per_head(q, k, v, x_a, attn_choice)
-                print(to_append.shape)
                 x = torch.concat((x, to_append), dim=-1)
             return x
 
