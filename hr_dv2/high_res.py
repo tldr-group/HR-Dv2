@@ -27,7 +27,6 @@ class HighResDV2(nn.Module):
         self,
         dino_name: str,
         stride: int,
-        sequential: bool = False,
         dtype: torch.dtype = torch.float32,
         track_grad: bool = False,
     ) -> None:
@@ -47,12 +46,13 @@ class HighResDV2(nn.Module):
         self.n_register_tokens = 4
 
         self.stride = _pair(stride)
+        # we need to set the stride to the original once before we set it to desired stride
+        # i don't know why
         self.set_model_stride(self.dinov2, patch)
         self.set_model_stride(self.dinov2, stride)
 
         self.transforms: List[partial] = []
         self.inverse_transforms: List[partial] = []
-        self.sequential = sequential
         self.interpolation_mode: Interpolation = "nearest-exact"
 
         # If we want to save memory, change to float16
@@ -195,55 +195,6 @@ class HighResDV2(nn.Module):
         return feat_tensor
 
     @torch.no_grad()
-    def get_dv2_attn(
-        self,
-        x: torch.Tensor,
-        stride_l: int = -1,
-        which: AttentionOptions = "cls",
-    ) -> torch.Tensor:
-        """Feed batched img tensor $x into DINOv2, optionally set stride and return features.
-
-        :param x: batched img tensor, shape [B, C, H, W]
-        :type x: torch.Tensor
-        :param stride: desired stride/resolution for VE, defaults to -1
-        :type stride: int, optional
-        :return: features extracted by DINOv2
-        :rtype: torch.Tensor
-        """
-        if self.dtype != torch.float32:
-            x = x.to(self.dtype)
-
-        if stride_l > 0:  # if we don't want to change stride. Assumes square stride
-            self.set_model_stride(self.dinov2, stride_l)
-        attention: torch.Tensor = self.dinov2.get_last_self_attention(x)  # type: ignore
-
-        # change this for ViTs
-        b, n_heads, n_tokens, _ = attention.shape
-        s0: int = 0
-        s1: int = 1
-        if which == "reg":
-            s0 = 1
-            s1 = 1 + self.n_register_tokens
-        elif which == "both":
-            s1 = 1 + self.n_register_tokens
-
-        # we use a list approach to ensure our we get correct order i.e that attention[:, 0:6, :, :]
-        # is the attention of 6 heads to cls/register token 0
-        attn_list = []
-        for i in range(s0, s1):
-            # attention tokens are packed in after the first token; the spatial tokens follow
-            token_attention = attention[:, :, i, 1 + self.n_register_tokens :].reshape(
-                b, n_heads, -1
-            )
-            attn_list.append(token_attention)
-        all_attention = torch.cat(attn_list, dim=1)
-        all_attention = torch.permute(all_attention, (0, 2, 1))
-        if self.dtype != torch.float32:
-            all_attention = all_attention.to(self.dtype)
-        print(all_attention.shape)
-        return all_attention
-
-    @torch.no_grad()
     def invert_transforms(
         self, feature_batch: torch.Tensor, x: torch.Tensor
     ) -> torch.Tensor:
@@ -251,6 +202,9 @@ class HighResDV2(nn.Module):
         make them spatial again by reshaping, permuting and resizing, then perform the
         corresponding inverse transform and add to our summand variable. Finally we divide by
         N_imgs to create average.
+
+        # TODO: parameterise this with the inverse transform s.t can just feed single batch (of
+        say the attn map) and the iden partial transform and get upsampled
 
         :param feature_batch: batch of N_transform features from Dv2 with shape (n_patches, n_features)
         :type feature_batch: torch.Tensor
@@ -297,7 +251,9 @@ class HighResDV2(nn.Module):
 
     @torch.no_grad()
     def forward(
-        self, x: torch.Tensor, attn_choice: AttentionOptions = "none"
+        self,
+        x: torch.Tensor,
+        attn_choice: AttentionOptions = "none",
     ) -> torch.Tensor:
         """Feed input img $x through network and get low and high res features.
 
@@ -309,8 +265,6 @@ class HighResDV2(nn.Module):
         x.requires_grad = self.track_grad
         if self.dtype != torch.float32:  # cast (i.e to f16)
             x = x.type(self.dtype)
-        # tmp_l = self.stride[0]
-        # self.set_model_stride(self.dinov2, tmp_l)
 
         img_batch = self.get_transformed_input_batch(x, self.transforms)
         out_dict = self.dinov2.forward_feats_attn(img_batch, None, attn_choice)  # type: ignore
@@ -328,8 +282,8 @@ class HighResDV2(nn.Module):
 
     @torch.no_grad()
     def forward_sequential(
-        self, x: torch.Tensor, attn: AttentionOptions = "none"
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        self, x: torch.Tensor, attn_choice: AttentionOptions = "none"
+    ) -> torch.Tensor:
         """Perform transform -> featurise -> upscale -> inverse -> average forward pass
         sequentially, performing more calls to DINOv2 but reducing the memory overhead.
 
@@ -344,18 +298,10 @@ class HighResDV2(nn.Module):
         img_batch = self.get_transformed_input_batch(x, self.transforms)
         temp_stride = self.stride
 
-        low_res_features = self.get_dv2_features(
-            x.unsqueeze(0), self.original_stride[0]
-        )
-
         _, img_h, img_w = x.shape
 
-        if attn == "cls":
-            c = self.n_heads
-        elif attn == "reg":
-            c = self.n_heads * self.n_register_tokens
-        elif attn == "both":
-            c = self.n_heads * (self.n_register_tokens + 1)
+        if attn_choice != "none":
+            c = self.n_heads + self.feat_dim
         else:
             c = self.feat_dim
 
@@ -376,10 +322,13 @@ class HighResDV2(nn.Module):
         N_transforms = len(self.transforms)
         for i in range(N_transforms):
             transformed_img = img_batch[i].unsqueeze(0)
-            if attn == "none":
-                features = self.get_dv2_features(transformed_img, temp_stride[0])
+            out_dict = self.dinov2.forward_feats_attn(transformed_img, None, attn_choice)  # type: ignore
+            if attn_choice != "none":
+                feats, attn = out_dict["x_norm_patchtokens"], out_dict["x_patchattn"]
+                features = torch.concat((feats, attn), dim=-1)
             else:
-                features = self.get_dv2_attn(transformed_img, temp_stride[0], attn)
+                features = out_dict["x_norm_patchtokens"]
+
             features = features.squeeze(0)
             feat_patch = features.view((n_patch_h, n_patch_w, c))
             permuted = feat_patch.permute((2, 0, 1)).unsqueeze(0)
@@ -394,7 +343,7 @@ class HighResDV2(nn.Module):
             out_feature_img += inverted
 
         mean = out_feature_img / N_transforms
-        return mean, low_res_features
+        return mean
 
     @torch.no_grad()
     def pca(self, f: torch.Tensor, k: int) -> torch.Tensor:
