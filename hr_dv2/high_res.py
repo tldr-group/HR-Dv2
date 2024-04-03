@@ -27,6 +27,7 @@ class HighResDV2(nn.Module):
         self,
         dino_name: str,
         stride: int,
+        pca_dim: int = -1,
         dtype: torch.dtype = torch.float32,
         track_grad: bool = False,
     ) -> None:
@@ -54,6 +55,8 @@ class HighResDV2(nn.Module):
         self.transforms: List[partial] = []
         self.inverse_transforms: List[partial] = []
         self.interpolation_mode: Interpolation = "nearest-exact"
+        self.pca_dim = pca_dim
+        self.do_pca = pca_dim > 3
 
         # If we want to save memory, change to float16
         self.dtype = dtype
@@ -171,28 +174,6 @@ class HighResDV2(nn.Module):
         if self.dtype != torch.float32:
             img_batch = img_batch.to(self.dtype)
         return img_batch
-
-    @torch.no_grad()
-    def get_dv2_features(self, x: torch.Tensor, stride_l: int = -1) -> torch.Tensor:
-        """Feed batched img tensor $x into DINOv2, optionally set stride and return features.
-
-        :param x: batched img tensor, shape [B, C, H, W]
-        :type x: torch.Tensor
-        :param stride: desired stride/resolution for VE, defaults to -1
-        :type stride: int, optional
-        :return: features extracted by DINOv2
-        :rtype: torch.Tensor
-        """
-        if self.dtype != torch.float32:
-            x = x.to(self.dtype)
-
-        if stride_l > 0:  # if we don't want to change stride. Assumes square stride
-            self.set_model_stride(self.dinov2, stride_l)
-        feat_dict = self.dinov2.forward_features(x)  # type: ignore
-        feat_tensor: torch.Tensor = feat_dict["x_norm_patchtokens"]
-        if self.dtype != torch.float32:
-            feat_tensor = feat_tensor.to(self.dtype)
-        return feat_tensor
 
     @torch.no_grad()
     def invert_transforms(
@@ -345,18 +326,48 @@ class HighResDV2(nn.Module):
         mean = out_feature_img / N_transforms
         return mean
 
-    @torch.no_grad()
-    def pca(self, f: torch.Tensor, k: int) -> torch.Tensor:
-        """Approximate (batched) tensor $f with its $k principal components computed over
-        all batches in f.
 
-        :param f: tensor of features. Can be flat or spatial, but flat preferred
-        :type f: torch.Tensor
-        :param k: number of principal components to use
-        :type k: int
-        :return: $k component PCA of $f
-        :rtype: torch.Tensor
-        """
-        U, S, V = torch.pca_lowrank(f, q=k)
-        projection = torch.matmul(f, V)
-        return projection
+# from FeatUp: https://github.com/mhamilton723/FeatUp/blob/main/featup/util.py
+class TorchPCA(object):
+
+    def __init__(self, n_components):
+        self.n_components = n_components
+
+    def fit(self, X):
+        self.mean_ = X.mean(dim=0)
+        unbiased = X - self.mean_.unsqueeze(0)
+        U, S, V = torch.pca_lowrank(
+            unbiased, q=self.n_components, center=False, niter=4
+        )
+        self.components_ = V.T
+        self.singular_values_ = S
+        return self
+
+    def transform(self, X):
+        t0 = X - self.mean_.unsqueeze(0)
+        projected = t0 @ self.components_.T
+        return projected
+
+
+def torch_pca(
+    feature_img: torch.Tensor,
+    dim: int = 128,
+    fit_pca=None,
+    max_samples: int = 20000,
+):
+    device = feature_img[0].device
+    C, H, W = feature_img.shape
+    N = H * W
+    flat = feature_img.reshape(C, N).permute(1, 0)
+
+    if max_samples is not None and N > max_samples:
+        indices = torch.randperm(N)[:max_samples]
+        sample = flat[indices].to(torch.float32)
+    else:
+        sample = flat.to(torch.float32)
+
+    if fit_pca is None:
+        fit_pca = TorchPCA(dim)
+        fit_pca.fit(sample)
+    transformed = fit_pca.transform(flat)
+    return transformed
