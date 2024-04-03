@@ -233,8 +233,14 @@ class Patch:
                 return self.ls2(self.mlp(self.norm2(x)))
 
             if attn_choice != "none":
-                return self.attn(self.norm1(x), attn_choice=attn_choice)
-
+                nH = self.attn.num_heads
+                ax = self.attn(self.norm1(x), attn_choice=attn_choice)
+                xa, a = ax[:, :, :-nH], ax[:, :, -nH:]
+                x = x + self.ls1(xa)
+                x = x + ffn_residual_func(x)
+                x = torch.concat((x, a), dim=-1)
+                return x
+            print(self.training)
             if self.training and self.sample_drop_ratio > 0.1:
                 # the overhead is compensated only for a drop path rate larger than 0.1
                 x = drop_add_residual_stochastic_depth(
