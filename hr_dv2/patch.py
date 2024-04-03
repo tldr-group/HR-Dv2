@@ -6,7 +6,9 @@ import torch.nn.functional as F
 import math
 import os
 
-from typing import Tuple, Callable
+from typing import Tuple, Callable, TypeAlias, Literal
+
+AttentionOptions: TypeAlias = Literal["q", "k", "v", "o", "none"]
 
 # here to avoid syntax erros - checked already in DinoV2 code
 XFORMERS_ENABLED = os.environ.get("XFORMERS_DISABLED") is None
@@ -19,6 +21,52 @@ try:
         raise ImportError
 except ImportError:
     XFORMERS_AVAILABLE = False
+
+
+def get_qkvo_per_head(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    x_a: torch.Tensor,
+    which: AttentionOptions,
+) -> torch.Tensor:
+    """Return either the mean q, k, v per head for tokens or the attn for the CLS
+    token per head. Note that using mem eff attn means we need to explicitly
+    recompute the attn tensor. This is expensive and scales poorly with image
+    resolution.
+
+    https://github.com/facebookresearch/dinov2/pull/306
+    https://github.com/facebookresearch/dinov2/issues/90
+    https://github.com/facebookresearch/xformers/issues/730#issuecomment-1518740489
+
+    Nt=N_tokens (patches, [CLS] and [REGs]), Nh=N_heads and C is output embed dim of
+    model, for vit_tiny C=384, Nh=6
+
+    :param q: query tensor, shape [B, Nt, Nh, C //Nh]
+    :type q: torch.Tensor
+    :param k: key tensor, shape [B, Nt, Nh, C //Nh]
+    :type k: torch.Tensor
+    :param v: value tensor, shape [B, Nt, Nh, C //Nh]
+    :type v: torch.Tensor
+    :param x_a: output of mem eff attn tensor
+    :type x_a: torch.Tensor
+    :param which: choice of which of qkvo to extract
+    :type which: AttentionOptions
+    :raises Exception: if "none" attention option passed
+    :return: desired primitive of shape [B, Nt, Nh]
+    :rtype: torch.Tensor
+    """
+    prims, mapping = [q, k, v], "qkv"
+    match which:
+        case "q" | "k" | "v":
+            prim = prims[mapping.index(which)]
+            per_head = prim.sum(dim=-1)
+        case "o":
+            attn = x_a.permute(0, 2, 1, 3) @ v.permute(0, 2, 3, 1)
+            per_head = attn[:, :, 0].permute(0, 2, 1)
+        case _:
+            raise Exception("not valid route")
+    return per_head
 
 
 class Patch:
@@ -128,7 +176,10 @@ class Patch:
         """
 
         def forward(
-            self, x: torch.Tensor, attn_bias=None, return_attn: bool = False
+            self,
+            x: torch.Tensor,
+            attn_bias=None,
+            attn_choice: AttentionOptions = "none",
         ) -> torch.Tensor:
             if not XFORMERS_AVAILABLE:
                 if attn_bias is not None:
@@ -141,42 +192,42 @@ class Patch:
 
             q, k, v = unbind(qkv, 2)
 
-            x = memory_efficient_attention(q, k, v, attn_bias=attn_bias)
-            if return_attn:
-
-                attn = x.permute(0, 2, 1, 3) @ v.permute(0, 2, 3, 1)
-                b, n_heads, n_tokens, _ = attn.shape
-                token_attention = attn[:, :, 0, 5:].reshape(b, n_heads, -1)
-                print(q.shape, k.shape, v.shape)
-                # TODO: just return q, k or v concat to the end of x
-                # slice and average in here, domn't early return but concat onto the end of x (should be same size)
-                return attn
-            x = x.reshape([B, N, C])
+            x_a = memory_efficient_attention(q, k, v, attn_bias=attn_bias)
+            x = x_a.reshape([B, N, C])
 
             x = self.proj(x)
             x = self.proj_drop(x)
+
+            to_append: torch.Tensor
+            if attn_choice != "none":
+                to_append = get_qkvo_per_head(q, k, v, x_a, attn_choice)
+                print(to_append.shape)
+                x = torch.concat((x, to_append), dim=-1)
             return x
 
         return forward
 
     @staticmethod
     def _fix_block_forward() -> Callable:
-        """Replaces normal 'forward()' method of the block module to ensure the 'return_attn'
+        """
+        Replaces normal 'forward()' method of the block module to ensure the 'return_attn'
         flag is used in the attn forward layers.
 
         :return: the new forward method
         :rtype: Callable
         """
 
-        def forward(self, x: torch.Tensor, return_attn: bool = False) -> torch.Tensor:
+        def forward(
+            self, x: torch.Tensor, attn_choice: AttentionOptions = "none"
+        ) -> torch.Tensor:
             def attn_residual_func(x: torch.Tensor) -> torch.Tensor:
                 return self.ls1(self.attn(self.norm1(x)))
 
             def ffn_residual_func(x: torch.Tensor) -> torch.Tensor:
                 return self.ls2(self.mlp(self.norm2(x)))
 
-            if return_attn:
-                return self.attn(self.norm1(x), return_attn=True)
+            if attn_choice != "none":
+                return self.attn(self.norm1(x), attn_choice=attn_choice)
 
             if self.training and self.sample_drop_ratio > 0.1:
                 # the overhead is compensated only for a drop path rate larger than 0.1
@@ -219,28 +270,43 @@ class Patch:
         return forward
 
     @staticmethod
-    def _add_forward_attn() -> Callable:
-        """Adds a new method to the VisionTransformer class called
-        'get_last_self_attention' that gets attention of the last layer.
-
-        :return: new method that gets attention of last lyaer
-        :rtype: Callable
-        """
-
-        def get_last_self_attention(self, x, masks=None):
+    def _add_new_forward_features() -> Callable:
+        def forward_feats_attn(
+            self, x, masks=None, attn_choice: AttentionOptions = "none"
+        ):
             if isinstance(x, list):
                 return self.forward_features_list(x, masks)
 
             x = self.prepare_tokens_with_masks(x, masks)
 
-            # Run through model, at the last block just return the attention.
             for i, blk in enumerate(self.blocks):
                 if i < len(self.blocks) - 1:
                     x = blk(x)
                 else:
-                    return blk(x, return_attn=True)
+                    x = blk(x, attn_choice=attn_choice)
 
-        return get_last_self_attention
+            if attn_choice != "none":
+                x_feats = x[:, :, : -self.num_heads]
+                # in our new function, the attn options are the last 6 channels of the features
+                x_attn = x[:, :, -self.num_heads :]
+            else:
+                x_feats = x
+
+            x_norm = self.norm(x_feats)
+            out_dict = {
+                "x_norm_clstoken": x_norm[:, 0],
+                "x_norm_regtokens": x_norm[:, 1 : self.num_register_tokens + 1],
+                "x_norm_patchtokens": x_norm[:, self.num_register_tokens + 1 :],
+                "x_prenorm": x,
+                "masks": masks,
+            }
+
+            if attn_choice != "none":
+                out_dict["x_patchattn"] = x_attn[:, self.num_register_tokens + 1 :]
+
+            return out_dict
+
+        return forward_feats_attn
 
 
 # here to avoid syntax errors
