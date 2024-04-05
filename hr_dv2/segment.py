@@ -81,10 +81,10 @@ def do_pca(features: np.ndarray, k: int = 3, standardize: bool = True) -> np.nda
 class CRFParams:
     label_confidence: float = 0.6
     sxy_g: Tuple[int, int] = (3, 3)
-    sxy_b: Tuple[int, int] = (80, 80)
+    sxy_b: Tuple[int, int] = (80, 80)  # was (80, 80)
     s_rgb: Tuple[int, int, int] = (13, 13, 13)
-    compat_g: float = 10
-    compat_b: float = 10
+    compat_g: float = 10  # 10
+    compat_b: float = 10  # 10
     n_infer: int = 10
 
 
@@ -144,7 +144,24 @@ def do_crf_from_labels(
     return crf_seg
 
 
-# def get_feat_dists_from_centroids() -> np.ndarray:
+def get_feat_dists_from_centroids(
+    features: np.ndarray,
+    old_centroids: np.ndarray,
+    merged_clusters: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    _, c = old_centroids.shape
+    new_classes = np.unique(merged_clusters)
+    new_centroids = np.zeros((c, len(new_classes)))
+    for i, val in enumerate(new_classes):
+        current_centers = old_centroids[merged_clusters == val]
+        new_centroids[:, i] = np.mean(current_centers, axis=0)
+    new_feats = features[..., np.newaxis]
+    reshaped_centrs = new_centroids[np.newaxis, ...]
+    print(features.shape, new_feats.shape, reshaped_centrs.shape)
+
+    abs_dist = np.abs(new_feats - reshaped_centrs)
+    distances = np.sum(abs_dist, axis=1)
+    return distances, new_centroids
 
 
 def do_crf_from_distances(
@@ -152,9 +169,7 @@ def do_crf_from_distances(
 ) -> np.ndarray:
     h, w, c = img_arr.shape
     distances = distances.astype(np.float32)
-    unary = np.ascontiguousarray(
-        distances.reshape(n_classes, h * w)
-    )  # unary_from_softmax(smax, )
+    unary = np.ascontiguousarray(distances.reshape(n_classes, h * w))
     d = _get_crf(img_arr, n_classes, unary, crf)
     Q = d.inference(crf.n_infer)
     crf_seg = np.argmax(Q, axis=0)
@@ -163,7 +178,7 @@ def do_crf_from_distances(
     return refined
 
 
-def cluster(
+def fwd_and_cluster(
     net: HighResDV2,
     img_tensor: torch.Tensor,
     n_clusters: int,
@@ -215,6 +230,44 @@ def cluster(
         print(f"Finished in {end-start}s")
 
     return labels, cluster.cluster_centers_, features, attention
+
+
+def semantic_segment(
+    features: np.ndarray,
+    attn: np.ndarray,
+    over_seg: np.ndarray,
+    centroids: np.ndarray,
+    img_arr: np.ndarray,
+    crf: CRFParams = default_crf_params,
+) -> np.ndarray:
+    h, w, c = img_arr.shape
+    over_seg = over_seg.reshape((h, w))
+    sum_cls = np.sum(attn, axis=0)
+
+    density_map, densities = get_attn_density(over_seg, sum_cls)
+    densities_arr = np.array(densities)
+
+    fg_mask = np.nonzero(densities_arr > np.mean(densities_arr))[0]
+    bg_mask = np.nonzero(densities_arr < np.mean(densities_arr))[0]
+
+    fg_clusters = centroids[fg_mask]
+    bg_clusters = centroids[bg_mask]
+
+    fg_bg_sims, _ = get_feature_similarities(fg_clusters, bg_clusters)
+    sim_cutoff = get_similarity_cutoff(fg_bg_sims)
+    merged_clusters = merge_foreground_clusters(centroids, sim_cutoff)
+    n_classes = len(np.unique(merged_clusters))
+
+    # semantic_seg = np.zeros((h, w))
+    # semantic_seg = merged_clusters[over_seg]
+    # for i, val in enumerate(np.unique(over_seg)):
+    #    current_class = np.where(over_seg == val, merged_clusters[i], 0)
+    #    semantic_seg += current_class
+
+    distances, _ = get_feat_dists_from_centroids(features, centroids, merged_clusters)
+
+    refined = do_crf_from_distances(distances.T, img_arr, n_classes, crf)
+    return refined
 
 
 def avg_features_over_labels(
