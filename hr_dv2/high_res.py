@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from torch.nn.modules.utils import _pair
 import torch.nn.functional as F
+from timm import create_model
 
 from .patch import Patch
 
@@ -35,10 +36,17 @@ class HighResDV2(nn.Module):
 
         if "dinov2" in dino_name:
             hub_path = "facebookresearch/dinov2"
-        else:
+            self.dinov2: nn.Module = torch.hub.load(hub_path, dino_name)
+        elif "dino" in dino_name:
             hub_path = "facebookresearch/dino:main"
+            self.dinov2: nn.Module = torch.hub.load(hub_path, dino_name)
+        else:
+            self.dinov2: nn.Module = create_model(
+                "vit_small_patch16_224", pretrained=True
+            )
+
         # self.dinov2: nn.Module = torch.hub.load("facebookresearch/dinov2", dino_name)
-        self.dinov2: nn.Module = torch.hub.load(hub_path, dino_name)
+
         self.dinov2.eval()
 
         if "dinov2" not in dino_name:
@@ -50,7 +58,7 @@ class HighResDV2(nn.Module):
         self.original_patch_size: int = patch
         self.original_stride = _pair(patch)
         # may need to deepcopy this instead of just referencing
-        self.original_pos_enc = self.dinov2.interpolate_pos_encoding
+        # self.original_pos_enc = self.dinov2.interpolate_pos_encoding
         self.feat_dim: int = feat
         self.n_heads: int = 6
         self.n_register_tokens = 4
@@ -113,14 +121,14 @@ class HighResDV2(nn.Module):
         if verbose:
             print(f"Setting stride to ({stride_l},{stride_l})")
 
-        if new_stride_pair == self.original_stride:
-            # if resetting to original, return original method
-            dino_model.interpolate_pos_encoding = self.original_pos_enc  # type: ignore
-        else:
-            dino_model.interpolate_pos_encoding = MethodType(  # type: ignore
-                Patch._fix_pos_enc(self.original_patch_size, new_stride_pair),
-                dino_model,
-            )  # typed ignored as they can't type check reassigned methods (generally is poor practice)
+        # if new_stride_pair == self.original_stride:
+        # if resetting to original, return original method
+        #    dino_model.interpolate_pos_encoding = self.original_pos_enc  # type: ignore
+        # else:
+        dino_model.interpolate_pos_encoding = MethodType(  # type: ignore
+            Patch._fix_pos_enc(self.original_patch_size, new_stride_pair),
+            dino_model,
+        )  # typed ignored as they can't type check reassigned methods (generally is poor practice)
 
     def patch_last_block(self, dino_model: nn.Module, dino_name: str) -> None:
         """Patch the final block of the dino model to add attention return code.
@@ -138,7 +146,7 @@ class HighResDV2(nn.Module):
             dino_model.forward_feats_attn = MethodType(  # type: ignore
                 Patch._add_new_forward_features_dv2(), dino_model
             )
-        else:
+        elif "dino" in dino_name:
             for i, blk in enumerate(dino_model.blocks):
                 blk.forward = MethodType(Patch._fix_block_forward_dino(), blk)
                 attn_block = blk.attn
@@ -146,6 +154,15 @@ class HighResDV2(nn.Module):
             final_block.forward = MethodType(Patch._fix_block_forward_dino(), final_block)  # type: ignore
             dino_model.forward_feats_attn = MethodType(  # type: ignore
                 Patch._add_new_forward_features_dino(), dino_model
+            )
+        else:
+            for i, blk in enumerate(dino_model.blocks):
+                blk.forward = MethodType(Patch._fix_block_forward_dino(), blk)
+                attn_block = blk.attn
+                attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
+            final_block.forward = MethodType(Patch._fix_block_forward_dv2(), final_block)  # type: ignore
+            dino_model.forward_feats_attn = MethodType(  # type: ignore
+                Patch._add_new_forward_features_vit(), dino_model
             )
 
     def get_n_patches(self, img_h: int, img_w: int) -> Tuple[int, int]:

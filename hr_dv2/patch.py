@@ -409,6 +409,49 @@ class Patch:
 
         return forward_feats_attn
 
+    @staticmethod
+    def _add_new_forward_features_vit() -> Callable:
+        def forward_feats_attn(
+            self, x, masks=None, attn_choice: AttentionOptions = "none"
+        ):
+            B, nc, w, h = x.shape
+            print(x.shape)
+
+            x = self.patch_embed(x)
+            # x = self.patch_drop(x)
+            x = x + self.interpolate_pos_encoding(x, w, h)
+
+            # x = self.prepare_tokens_with_masks(x, masks)
+
+            for i, blk in enumerate(self.blocks):
+                if i < len(self.blocks) - 1:
+                    x = blk(x)
+                else:
+                    x = blk(x, attn_choice=attn_choice)
+
+            if attn_choice != "none":
+                x_feats = x[:, :, : -self.num_heads]
+                # in our new function, the attn options are the last 6 channels of the features
+                x_attn = x[:, :, -self.num_heads :]
+            else:
+                x_feats = x
+
+            x_norm = self.norm(x_feats)
+            out_dict = {
+                "x_norm_clstoken": x_norm[:, 0],
+                "x_norm_regtokens": x_norm[:, 1 : self.num_register_tokens + 1],
+                "x_norm_patchtokens": x_norm[:, self.num_register_tokens + 1 :],
+                "x_prenorm": x,
+                "masks": masks,
+            }
+
+            if attn_choice != "none":
+                out_dict["x_patchattn"] = x_attn[:, self.num_register_tokens + 1 :]
+
+            return out_dict
+
+        return forward_feats_attn
+
 
 # here to avoid syntax errors
 def drop_add_residual_stochastic_depth(

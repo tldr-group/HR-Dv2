@@ -238,8 +238,9 @@ def semantic_segment(
     over_seg: np.ndarray,
     centroids: np.ndarray,
     img_arr: np.ndarray,
+    scale: float = 1.0,
     crf: CRFParams = default_crf_params,
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
     h, w, c = img_arr.shape
     over_seg = over_seg.reshape((h, w))
     sum_cls = np.sum(attn, axis=0)
@@ -254,20 +255,20 @@ def semantic_segment(
     bg_clusters = centroids[bg_mask]
 
     fg_bg_sims, _ = get_feature_similarities(fg_clusters, bg_clusters)
-    sim_cutoff = 1.1 * get_similarity_cutoff(fg_bg_sims)
+    sim_cutoff = scale * get_similarity_cutoff(fg_bg_sims)
     merged_clusters = merge_foreground_clusters(centroids, sim_cutoff)
     n_classes = len(np.unique(merged_clusters))
 
-    # semantic_seg = np.zeros((h, w))
-    # semantic_seg = merged_clusters[over_seg]
-    # for i, val in enumerate(np.unique(over_seg)):
-    #    current_class = np.where(over_seg == val, merged_clusters[i], 0)
-    #    semantic_seg += current_class
+    semantic_seg = np.zeros((h, w))
+    semantic_seg = merged_clusters[over_seg]
+    for i, val in enumerate(np.unique(over_seg)):
+        current_class = np.where(over_seg == val, merged_clusters[i], 0)
+        semantic_seg += current_class
 
     distances, _ = get_feat_dists_from_centroids(features, centroids, merged_clusters)
 
     refined = do_crf_from_distances(distances.T, img_arr, n_classes, crf)
-    return refined
+    return refined, semantic_seg
 
 
 def avg_features_over_labels(
