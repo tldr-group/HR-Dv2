@@ -34,6 +34,9 @@ cd HR-Dv2/
 git clone https://github.com/facebookresearch/dinov2
 pip install -r dinov2/requirements.txt -r dinov2/requirements-dev.txt
 pip install -e .
+
+
+
 ```
 
 ### PATHS:
@@ -55,11 +58,11 @@ Two possible 'paths'
 - [x] Evaluation of object localization on VOC07 & 12, compare w/ MOST
 - [x] Evaluation of foreground segmentation on [CUBS-200-2011](https://www.vision.caltech.edu/datasets/cub_200_2011/), [DUTS](http://saliencydetection.net/duts/)
 - [x] Add option to use q,k or v values from attention of CLS (& compare perf)
-- [ ] Rewrite utls, segement (use updated crf)
-- [-] Profiling: seems like the patch embedding conv2d layer (and maybe its associated linear) is the slowest operation
-- [ ] Add option to use FeatUp's JBU as feature upscaler
-- [ ] Clean up notebooks
-- [ ] Add option to use different ViTs (like DINO or SAM)
+- [x] Rewrite utls, segement (use updated crf)
+- [-] Profiling: seems like the patch embedding conv2d layer (and maybe its associated linear) is the slowest operation, true for both sequential and single pass
+- [-] Add option to use FeatUp's JBU as feature upscaler: how does it work with 
+- [ ] Add option to use different ViTs (like DINO, ViT-16-b, or SAM)
+- [ ] Clean up notebooks: comparison should now contain JBU
 - [ ] Add small hyperparam optimization task (mix of foreground seg & localization across various DS)
 - [ ] Ablations
 - [ ] Linear probe eval on COCO-Stuff as in FeatUp

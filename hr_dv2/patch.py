@@ -161,7 +161,6 @@ class Patch:
             attn = self.attn_drop(attn)
 
             if return_attn:
-                # print(attn.shape)
                 return attn
 
             x = (attn @ v).transpose(1, 2).reshape(B, N, C)
@@ -214,7 +213,58 @@ class Patch:
         return forward
 
     @staticmethod
-    def _fix_block_forward() -> Callable:
+    def _fix_block_forward_dino() -> Callable:
+        """
+        Replaces normal 'forward()' method of the block module to ensure the 'return_attn'
+        flag is used in the attn forward layers.
+
+        :return: the new forward method
+        :rtype: Callable
+        """
+
+        def forward(
+            self, x: torch.Tensor, attn_choice: AttentionOptions = "none"
+        ) -> torch.Tensor:
+            def attn_residual_func(x: torch.Tensor) -> torch.Tensor:
+                # return self.ls1(self.attn(self.norm1(x)))
+                return self.attn(self.norm1(x))
+
+            def ffn_residual_func(x: torch.Tensor) -> torch.Tensor:
+                # return self.ls2(self.mlp(self.norm2(x)))
+                return self.mlp(self.norm2(x))
+
+            if attn_choice != "none":
+                nH = self.attn.num_heads
+                ax = self.attn(self.norm1(x), attn_choice=attn_choice)
+                xa, a = ax[:, :, :-nH], ax[:, :, -nH:]
+                x = x + xa  # self.ls1(xa)
+                x = x + ffn_residual_func(x)
+                x = torch.concat((x, a), dim=-1)
+                return x
+            if self.training and self.sample_drop_ratio > 0.1:
+                # the overhead is compensated only for a drop path rate larger than 0.1
+                x = drop_add_residual_stochastic_depth(
+                    x,
+                    residual_func=attn_residual_func,
+                    sample_drop_ratio=self.sample_drop_ratio,
+                )
+                x = drop_add_residual_stochastic_depth(
+                    x,
+                    residual_func=ffn_residual_func,
+                    sample_drop_ratio=self.sample_drop_ratio,
+                )
+            elif self.training and self.sample_drop_ratio > 0.0:
+                x = x + self.drop_path1(attn_residual_func(x))
+                x = x + self.drop_path1(ffn_residual_func(x))  # FIXME: drop_path2
+            else:
+                x = x + attn_residual_func(x)
+                x = x + ffn_residual_func(x)
+            return x
+
+        return forward
+
+    @staticmethod
+    def _fix_block_forward_dv2() -> Callable:
         """
         Replaces normal 'forward()' method of the block module to ensure the 'return_attn'
         flag is used in the attn forward layers.
@@ -282,7 +332,46 @@ class Patch:
         return forward
 
     @staticmethod
-    def _add_new_forward_features() -> Callable:
+    def _add_new_forward_features_dino() -> Callable:
+        def forward_feats_attn(
+            self, x, masks=None, attn_choice: AttentionOptions = "none"
+        ):
+            if isinstance(x, list):
+                return self.forward_features_list(x, masks)
+
+            x = self.prepare_tokens(x)  # prepare_tokens_with_masks(x, masks) for dv2
+
+            for i, blk in enumerate(self.blocks):
+                if i < len(self.blocks) - 1:
+                    x = blk(x)
+                else:
+                    x = blk(x, attn_choice=attn_choice)
+
+            if attn_choice != "none":
+                x_feats = x[:, :, : -self.num_heads]
+                # in our new function, the attn options are the last 6 channels of the features
+                x_attn = x[:, :, -self.num_heads :]
+            else:
+                x_feats = x
+
+            x_norm = self.norm(x_feats)
+            out_dict = {
+                "x_norm_clstoken": x_norm[:, 0],
+                "x_norm_regtokens": x_norm[:, 1 : self.num_register_tokens + 1],
+                "x_norm_patchtokens": x_norm[:, self.num_register_tokens + 1 :],
+                "x_prenorm": x,
+                "masks": masks,
+            }
+
+            if attn_choice != "none":
+                out_dict["x_patchattn"] = x_attn[:, self.num_register_tokens + 1 :]
+
+            return out_dict
+
+        return forward_feats_attn
+
+    @staticmethod
+    def _add_new_forward_features_dv2() -> Callable:
         def forward_feats_attn(
             self, x, masks=None, attn_choice: AttentionOptions = "none"
         ):

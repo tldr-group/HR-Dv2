@@ -254,7 +254,7 @@ def semantic_segment(
     bg_clusters = centroids[bg_mask]
 
     fg_bg_sims, _ = get_feature_similarities(fg_clusters, bg_clusters)
-    sim_cutoff = get_similarity_cutoff(fg_bg_sims)
+    sim_cutoff = 1.1 * get_similarity_cutoff(fg_bg_sims)
     merged_clusters = merge_foreground_clusters(centroids, sim_cutoff)
     n_classes = len(np.unique(merged_clusters))
 
