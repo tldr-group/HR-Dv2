@@ -40,9 +40,13 @@ class HighResDV2(nn.Module):
         elif "dino" in dino_name:
             hub_path = "facebookresearch/dino:main"
             self.dinov2: nn.Module = torch.hub.load(hub_path, dino_name)
+        elif "deit" in dino_name:
+            self.dinov2: nn.Module = create_model(
+                "deit_small_patch16_224", pretrained=True
+            )
         else:
             self.dinov2: nn.Module = create_model(
-                "vit_small_patch16_224", pretrained=True
+                "vit_small_patch16_384", pretrained=True
             )
 
         # self.dinov2: nn.Module = torch.hub.load("facebookresearch/dinov2", dino_name)
@@ -160,7 +164,7 @@ class HighResDV2(nn.Module):
                 blk.forward = MethodType(Patch._fix_block_forward_dino(), blk)
                 attn_block = blk.attn
                 attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
-            final_block.forward = MethodType(Patch._fix_block_forward_dv2(), final_block)  # type: ignore
+            final_block.forward = MethodType(Patch._fix_block_forward_dino(), final_block)  # type: ignore
             dino_model.forward_feats_attn = MethodType(  # type: ignore
                 Patch._add_new_forward_features_vit(), dino_model
             )

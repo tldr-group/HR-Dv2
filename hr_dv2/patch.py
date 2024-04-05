@@ -418,6 +418,7 @@ class Patch:
             print(x.shape)
 
             x = self.patch_embed(x)
+            x = torch.cat((self.cls_token.expand(x.shape[0], -1, -1), x), dim=1)
             # x = self.patch_drop(x)
             x = x + self.interpolate_pos_encoding(x, w, h)
 
