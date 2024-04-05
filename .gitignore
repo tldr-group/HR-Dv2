@@ -165,6 +165,7 @@ cython_debug/
 *experiments/object_segmentation/datasets/*
 *experiments/object_segmentation/out/*
 *dinov2/*
+*FeatUp*
 *.venv*
 *.vscode*
 *plots*
