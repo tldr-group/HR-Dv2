@@ -33,8 +33,17 @@ class HighResDV2(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.dinov2: nn.Module = torch.hub.load("facebookresearch/dinov2", dino_name)
+        if "dinov2" in dino_name:
+            hub_path = "facebookresearch/dinov2"
+        else:
+            hub_path = "facebookresearch/dino:main"
+        # self.dinov2: nn.Module = torch.hub.load("facebookresearch/dinov2", dino_name)
+        self.dinov2: nn.Module = torch.hub.load(hub_path, dino_name)
         self.dinov2.eval()
+
+        if "dinov2" not in dino_name:
+            self.dinov2.num_heads = 6  # type: ignore
+            self.dinov2.num_register_tokens = 0  # type: ignore
 
         # Get params of Dv2 model and store references to original settings & methods
         feat, patch = self.get_model_params(dino_name)
@@ -64,7 +73,7 @@ class HighResDV2(nn.Module):
             self = self.to(dtype)
         self.track_grad = track_grad  # off by default to save memory
 
-        self.patch_last_block(self.dinov2)
+        self.patch_last_block(self.dinov2, dino_name)
 
     def get_model_params(self, dino_name: str) -> Tuple[int, int]:
         """Match a name like dinov2_vits14 / dinov2_vitg16_lc etc. to feature dim and patch size.
@@ -113,7 +122,7 @@ class HighResDV2(nn.Module):
                 dino_model,
             )  # typed ignored as they can't type check reassigned methods (generally is poor practice)
 
-    def patch_last_block(self, dino_model: nn.Module) -> None:
+    def patch_last_block(self, dino_model: nn.Module, dino_name: str) -> None:
         """Patch the final block of the dino model to add attention return code.
 
         :param dino_model: DINO or DINOv2 model
@@ -121,11 +130,23 @@ class HighResDV2(nn.Module):
         """
         final_block = dino_model.blocks[-1]  # type: ignore
         attn_block = final_block.attn  # type: ignore
+        # hilariously this also works for dino i.e we can patch dino's attn block forward to
+        # use the memeory efficienty attn like in dinov2
         attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
-        final_block.forward = MethodType(Patch._fix_block_forward(), final_block)  # type: ignore
-        dino_model.forward_feats_attn = MethodType(  # type: ignore
-            Patch._add_new_forward_features(), dino_model
-        )
+        if "dinov2" in dino_name:
+            final_block.forward = MethodType(Patch._fix_block_forward_dv2(), final_block)  # type: ignore
+            dino_model.forward_feats_attn = MethodType(  # type: ignore
+                Patch._add_new_forward_features_dv2(), dino_model
+            )
+        else:
+            for i, blk in enumerate(dino_model.blocks):
+                blk.forward = MethodType(Patch._fix_block_forward_dino(), blk)
+                attn_block = blk.attn
+                attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
+            final_block.forward = MethodType(Patch._fix_block_forward_dino(), final_block)  # type: ignore
+            dino_model.forward_feats_attn = MethodType(  # type: ignore
+                Patch._add_new_forward_features_dino(), dino_model
+            )
 
     def get_n_patches(self, img_h: int, img_w: int) -> Tuple[int, int]:
         stride_l = self.stride[0]
