@@ -175,3 +175,4 @@ cython_debug/
 *.mp4
 *frame*
 *old_data*
+*cuda_cmd*
