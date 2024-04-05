@@ -11,7 +11,7 @@ from pydensecrf.utils import unary_from_labels
 from skimage.measure import label
 
 
-from .high_res import HighResDV2
+from .high_res import HighResDV2, AttentionOptions
 from . import transform as tr
 from .utils import *
 
@@ -92,6 +92,30 @@ KERNEL = dcrf.FULL_KERNEL
 default_crf_params = CRFParams()
 
 
+def _get_crf(
+    img_arr: np.ndarray, n_c: int, unary: np.ndarray, crf: CRFParams
+) -> dcrf.DenseCRF2D:
+    h, w, _ = img_arr.shape
+    d = dcrf.DenseCRF2D(w, h, n_c)
+    u = np.ascontiguousarray(unary)
+    d.setUnaryEnergy(u)
+    d.addPairwiseGaussian(
+        sxy=crf.sxy_g,
+        compat=crf.compat_g,
+        kernel=KERNEL,
+        normalization=dcrf.NORMALIZE_SYMMETRIC,
+    )
+    d.addPairwiseBilateral(
+        sxy=crf.sxy_b,
+        srgb=crf.s_rgb,
+        rgbim=img_arr,
+        compat=crf.compat_b,
+        kernel=KERNEL,
+        normalization=dcrf.NORMALIZE_SYMMETRIC,
+    )
+    return d
+
+
 def do_crf_from_labels(
     labels_arr: np.ndarray, img_arr: np.ndarray, n_classes: int, crf: CRFParams
 ) -> np.ndarray:
@@ -113,35 +137,37 @@ def do_crf_from_labels(
     unary = unary_from_labels(
         labels_arr, n_classes, crf.label_confidence, zero_unsure=False
     )
-    d = dcrf.DenseCRF2D(w, h, n_classes)
-    u = np.ascontiguousarray(unary)
-    d.setUnaryEnergy(u)
-    d.addPairwiseGaussian(
-        sxy=crf.sxy_g,
-        compat=crf.compat_g,
-        kernel=KERNEL,
-        normalization=dcrf.NORMALIZE_SYMMETRIC,
-    )
-    d.addPairwiseBilateral(
-        sxy=crf.sxy_b,
-        srgb=crf.s_rgb,
-        rgbim=img_arr,
-        compat=crf.compat_b,
-        kernel=KERNEL,
-        normalization=dcrf.NORMALIZE_SYMMETRIC,
-    )
+    d = _get_crf(img_arr, n_classes, unary, crf)
     Q = d.inference(crf.n_infer)
     crf_seg = np.argmax(Q, axis=0)
     crf_seg = crf_seg.reshape((h, w, 1))
     return crf_seg
 
 
+# def get_feat_dists_from_centroids() -> np.ndarray:
+
+
+def do_crf_from_distances(
+    distances: np.ndarray, img_arr: np.ndarray, n_classes: int, crf: CRFParams
+) -> np.ndarray:
+    h, w, c = img_arr.shape
+    distances = distances.astype(np.float32)
+    unary = np.ascontiguousarray(
+        distances.reshape(n_classes, h * w)
+    )  # unary_from_softmax(smax, )
+    d = _get_crf(img_arr, n_classes, unary, crf)
+    Q = d.inference(crf.n_infer)
+    crf_seg = np.argmax(Q, axis=0)
+    crf_seg = crf_seg.reshape((h, w, 1))
+    refined = crf_seg.squeeze(-1)
+    return refined
+
+
 def cluster(
     net: HighResDV2,
-    img_arr: np.ndarray,
     img_tensor: torch.Tensor,
     n_clusters: int,
-    get_attn: bool = True,
+    attn_choice: AttentionOptions = "none",
     verbose: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Get and (over) cluster ViT features and optionally return attention.
@@ -162,29 +188,25 @@ def cluster(
     :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
     """
     start = time()
-    attn: np.ndarray
-    if get_attn:
-        # Cache old transforms
-        fwd, inv = net.transforms, net.inverse_transforms
-        net.set_transforms([], [])
-        attn_tensor, _ = net.forward(img_tensor, attn="cls")
-        attn = tr.to_numpy(attn_tensor)
-        # Add them back
-        net.set_transforms(fwd, inv)
+    attn: torch.Tensor
+
+    feats_and_attn = net.forward(img_tensor, attn_choice=attn_choice)
+    if attn_choice != "none":
+        feats, attn = (
+            feats_and_attn[0, : -net.n_heads, :, :],
+            feats_and_attn[0, -net.n_heads :, :, :],
+        )
     else:
-        attn = np.zeros_like(img_arr)
-    # TODO: find a way to get attention and features out in a single forward pass: maybe by including unperturbed
-    # Maybe by assuming it's always batched and we only want attention of first item in batch
-    # How can we
-    hr_tensor, _ = net.forward(img_tensor, attn="none")
-    features: np.ndarray
-    b, c, fh, fw = hr_tensor.shape
-    features = tr.to_numpy(hr_tensor)
+        feats = feats_and_attn
+        attn = torch.zeros_like(img_tensor)
+
+    c, fh, fw = feats.shape
+    features = tr.to_numpy(feats, batched=False)
     reshaped = features.reshape((c, fh * fw)).T
 
-    normed = normalise_pca(reshaped)
-    # TODO: add a fast PCA in here?
+    attention = tr.to_numpy(attn, batched=False)
 
+    normed = normalise_pca(reshaped)
     cluster = KMeans(n_clusters=n_clusters, n_init="auto", max_iter=300)
     labels = cluster.fit_predict(normed)
 
@@ -192,46 +214,7 @@ def cluster(
     if verbose:
         print(f"Finished in {end-start}s")
 
-    return labels, attn, cluster.cluster_centers_, features
-
-
-def superpixel(
-    net: HighResDV2,
-    img_arr: np.ndarray,
-    img_tensor: torch.Tensor,
-    n_clusters: int,
-    get_attn: bool = True,
-    verbose: bool = False,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    start = time()
-    attn: np.ndarray
-    if get_attn:
-        # Cache old transforms
-        fwd, inv = net.transforms, net.inverse_transforms
-        net.set_transforms([], [])
-        attn_tensor, _ = net.forward(img_tensor, attn="cls")
-        attn = tr.to_numpy(attn_tensor)
-        # Add them back
-        net.set_transforms(fwd, inv)
-    else:
-        attn = np.zeros_like(img_arr)
-    hr_tensor, _ = net.forward(img_tensor, attn="none")
-    features: np.ndarray
-    b, c, fh, fw = hr_tensor.shape
-    features = tr.to_numpy(hr_tensor)
-
-    labels = slic(
-        img_arr,
-        slic_zero=True,
-        start_label=0,
-        compactness=0.1,
-    )
-
-    end = time()
-    if verbose:
-        print(f"Finished in {end-start}s")
-
-    return labels, attn, features
+    return labels, cluster.cluster_centers_, features, attention
 
 
 def avg_features_over_labels(
