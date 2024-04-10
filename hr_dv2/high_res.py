@@ -46,7 +46,7 @@ class HighResDV2(nn.Module):
             )
         else:
             self.dinov2: nn.Module = create_model(
-                "vit_small_patch16_384", pretrained=True
+                "vit_small_patch16_224", pretrained=True
             )
 
         # self.dinov2: nn.Module = torch.hub.load("facebookresearch/dinov2", dino_name)
