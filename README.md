@@ -60,14 +60,20 @@ Two possible 'paths'
 - [x] Add option to use q,k or v values from attention of CLS (& compare perf)
 - [x] Rewrite utls, segement (use updated crf)
 - [-] Profiling: seems like the patch embedding conv2d layer (and maybe its associated linear) is the slowest operation, true for both sequential and single pass
-- [-] Add option to use FeatUp's JBU as feature upscaler: how does it work with 
-- [ ] Add option to use different ViTs (like DINO, ViT-16-b, or SAM)
-- [ ] Clean up notebooks: comparison should now contain JBU
-- [ ] Add small hyperparam optimization task (mix of foreground seg & localization across various DS)
-- [ ] Ablations
+- [-] Add option to use FeatUp's JBU as feature upscaler. Write a custom torch.NN that mimics the structure, getting the features out but also the attention & passing the features to the JBU.
+- [x] Add option to use different ViTs (like DINO, ViT-16-b, or SAM)
+- [ ] Instead of using distances -> crf, do dists -> smax -> crf
+- [ ] Add small hyperparam optimization task (mix of foreground seg, localization and semantic seg across various DS). Also measure memory usage and time.
+- [ ] Clean up notebooks: comparison should now include comparisons of methods (resize, strided, JBU, ours) and comparisons of different nets for ours (dinov8/16, dv2, vit and deit)
+- [ ] Clean up source code: fix docstrings, remove old methods, rebalance utils vs transform. Can you rewrite the patching better?
+- [ ] Read linked papers/email FeatUp to find their linear probe training setup "linear probes are trained with separate Adam optimizers using a learning rate of .005" i.e a linear layer that maps from C -> n_classes (27 for coco). They train on COCO-Stuff training data, predicting the 27 coarse classes and using cross-entropy loss. They report numbers on validation set. I assume they don't normalise features either
 - [ ] Linear probe eval on COCO-Stuff as in FeatUp
+- [ ] Retrieval demonstration as in figure 15
 - [ ] Evalutation of semantic segmentation on Pascal VOC12, compare w/ 'Deep spectral Methods ...' 
 - [ ] Evaluation co-segmentation performance on CUBS, comparison to 'Deep ViT Features as Dense Visual Descriptors'
+- [ ] Write napari plugin for weakly labelled semantic segmentation - train linear model on features to match labels s.t we just do mat mul to get full segmentation (fast!). Allow loading multiple images/features at once (does this not work becuase we normalise features though?).
+- [ ] Ablations
+
 
 
 ## Links

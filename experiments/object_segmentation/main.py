@@ -15,12 +15,9 @@ torch.cuda.empty_cache()
 from hr_dv2 import HighResDV2, tr
 from hr_dv2.utils import *
 from hr_dv2.segment import (
-    foreground_segment,
-    multi_object_foreground_segment,
-    multi_class_bboxes,
-    get_seg_bboxes,
-    largest_connected_component,
-    get_bbox,
+    fwd_and_cluster,
+    semantic_segment,
+    get_attn_density,
     default_crf_params,
 )
 
@@ -30,7 +27,8 @@ np.random.seed(2189)
 CWD = os.getcwd()
 DIR = f"{CWD}/experiments/object_segmentation/"
 # DATA_DIR = f"{CWD}/experiments/object_segmentation/datasets/CUB_200_2011"
-DATA_DIR = f"{CWD}/experiments/object_segmentation/datasets/both/"
+# DATA_DIR = f"{CWD}/experiments/object_segmentation/datasets/both/"
+DATA_DIR = "/media/ronan/T7/phd/HR_DV2/datasets/fg_mix/"
 IMGS = f"{DATA_DIR}test_images/"
 SEGS = f"{DATA_DIR}test_segmentations/"
 
@@ -53,7 +51,12 @@ def compute_iou(pred, target):
 
 
 def plot_result(
-    pred_seg: np.ndarray, gt_seg: np.ndarray, img_arr: np.ndarray, idx: int, iou: float
+    pred_seg: np.ndarray,
+    gt_seg: np.ndarray,
+    img_arr: np.ndarray,
+    idx: int,
+    iou: float,
+    save_dir: str,
 ) -> None:
     fig, axs = plt.subplots(nrows=1, ncols=2)
     img_ax, seg_ax = axs
@@ -87,7 +90,7 @@ def plot_result(
         ax.set_axis_off()
     plt.suptitle(f"{idx} mIoU: {iou :.4f}")
     plt.tight_layout()
-    plt.savefig(f"{DIR}/out/{idx}.png")
+    plt.savefig(f"{save_dir}{idx}.png")
     plt.close()
 
 
@@ -101,15 +104,13 @@ def save_result(save_data: List, new: bool = False) -> None:
             writer.writerow([img_id, img_name, miou, d_miou])
 
 
-def main():
-    net = HighResDV2("dinov2_vits14_reg", 4, dtype=torch.float16)
-    # net.interpolation_mode = "bicubic"
-    shift_dists = [i for i in range(1, 3)]
-    transforms, inv_transforms = tr.get_shift_transforms(shift_dists, "Moore")
-    # transforms, inv_transforms = tr.get_flip_transforms()
-    net.set_transforms(transforms, inv_transforms)
-    net.cuda()
-    net.eval()
+def loop(
+    net: torch.nn.Module,
+    n: int,
+    json: dict,
+    save_dir: str,
+    print_per: int = 1,
+) -> None:
 
     ious = []
     save_data = []
@@ -132,22 +133,36 @@ def main():
 
         img = img.cuda()
         # maybe just use attention ,map as unary and not unary from labels
-        refined, density_map, unrefined = foreground_segment(
-            net, img_arr, img, 80, default_crf_params
+        labels, centers, feats, attn, normed = fwd_and_cluster(
+            net,
+            img,
+            json["n_clusters"],
+            attn_choice=json["attn"],
+            sequential=json["sequential"],
         )
+        seg, _ = semantic_segment(
+            normed, attn, labels, centers, img_arr, json["cutoff_scale"]
+        )
+
+        sum_cls = np.sum(attn, axis=0)
+        amap, dens = get_attn_density(seg, sum_cls)
+        fg = amap > np.mean(dens)
+
+        fg_seg = seg * fg
+
         img = img.cpu()
-        refined = np.squeeze(refined, -1)
+        # refined = np.squeeze(refined, -1)
         # refined = largest_connected_component(refined)
 
         # same as in DSS for comparison
         gt = np.where(seg_arr > 0.5, 1, 0)  # np.zeros_like(refined) +
 
-        iou = compute_iou(torch.Tensor(refined), torch.Tensor(gt))
+        iou = compute_iou(torch.Tensor(fg), torch.Tensor(gt))
         ious.append(iou)
         save_data.append([i, img_path, iou, np.mean(ious)])
 
-        if i % PLOT_PER == 0:
-            plot_result(refined, gt, img_arr, i, iou)
+        if i % print_per == 0:
+            plot_result(fg, gt, img_arr, i, iou, save_dir)
         if i % SAVE_PER == 0 and i > 1:
             new = i == SAVE_PER
             cub_ious = []
@@ -161,6 +176,25 @@ def main():
                 f"{i}/{N_IMGS}: CUBS mIoU={np.mean(cub_ious):.4f}+/-{np.std(cub_ious):.4f} \n DUTS mIoU={np.mean(dut_ious):.4f}+/-{np.std(dut_ious):.4f} "
             )
             save_result(save_data, new)
+
+        if i > n:
+            return
+
+
+def main():
+    net = HighResDV2("dinov2_vits14_reg", 4, dtype=torch.float16)
+    # net.interpolation_mode = "bicubic"
+    shift_dists = [i for i in range(1, 3)]
+    transforms, inv_transforms = tr.get_shift_transforms(shift_dists, "Moore")
+    # transforms, inv_transforms = tr.get_flip_transforms()
+    net.set_transforms(transforms, inv_transforms)
+    net.cuda()
+    net.eval()
+
+    loop(
+        net,
+        N_IMGS,
+    )
 
 
 if __name__ == "__main__":

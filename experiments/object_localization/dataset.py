@@ -4,6 +4,7 @@ lukemels at https://github.com/lukemelas/deep-spectral-segmentation
 
 Datasets file. Code adapted from LOST: https://github.com/valeoai/LOST
 """
+
 import os
 import torch
 import json

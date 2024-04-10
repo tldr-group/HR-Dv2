@@ -183,8 +183,9 @@ def fwd_and_cluster(
     img_tensor: torch.Tensor,
     n_clusters: int,
     attn_choice: AttentionOptions = "none",
+    sequential: bool = False,
     verbose: bool = False,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Get and (over) cluster ViT features and optionally return attention.
 
     :param net: ViT to extract features from
@@ -205,7 +206,10 @@ def fwd_and_cluster(
     start = time()
     attn: torch.Tensor
 
-    feats_and_attn = net.forward(img_tensor, attn_choice=attn_choice)
+    if sequential:
+        feats_and_attn = net.forward_sequential(img_tensor, attn_choice=attn_choice)
+    else:
+        feats_and_attn = net.forward(img_tensor, attn_choice=attn_choice)
     if attn_choice != "none":
         feats, attn = (
             feats_and_attn[0, : -net.n_heads, :, :],
@@ -222,14 +226,19 @@ def fwd_and_cluster(
     attention = tr.to_numpy(attn, batched=False)
 
     normed = normalise_pca(reshaped)
+
+    n_pix = normed.shape[0]
+    random_inds = np.random.choice(np.arange(n_pix), min(50000, n_pix), False)
+
     cluster = KMeans(n_clusters=n_clusters, n_init="auto", max_iter=300)
-    labels = cluster.fit_predict(normed)
+    cluster.fit(normed[random_inds])
+    labels = cluster.predict(normed)
 
     end = time()
     if verbose:
         print(f"Finished in {end-start}s")
 
-    return labels, cluster.cluster_centers_, features, attention
+    return labels, cluster.cluster_centers_, features, attention, normed
 
 
 def semantic_segment(
