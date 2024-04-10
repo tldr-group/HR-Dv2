@@ -239,6 +239,7 @@ def semantic_segment(
     centroids: np.ndarray,
     img_arr: np.ndarray,
     scale: float = 1.0,
+    n_classes: int = -1,
     crf: CRFParams = default_crf_params,
 ) -> tuple[np.ndarray, np.ndarray]:
     h, w, c = img_arr.shape
@@ -256,7 +257,9 @@ def semantic_segment(
 
     fg_bg_sims, _ = get_feature_similarities(fg_clusters, bg_clusters)
     sim_cutoff = scale * get_similarity_cutoff(fg_bg_sims)
-    merged_clusters = merge_foreground_clusters(centroids, sim_cutoff)
+    merged_clusters = merge_foreground_clusters(
+        centroids, sim_cutoff, n_classes=n_classes
+    )
     n_classes = len(np.unique(merged_clusters))
 
     semantic_seg = np.zeros((h, w))
@@ -371,7 +374,10 @@ def get_similarity_cutoff(fg_bg_similarities: List[float]) -> float:
 
 
 def merge_foreground_clusters(
-    fg_clusters: np.ndarray, distance_cutoff: float, offset: int = 1
+    fg_clusters: np.ndarray,
+    distance_cutoff: float,
+    n_classes: int = -1,
+    offset: int = 1,
 ) -> np.ndarray:
     """Merge foreground clusters with agglomerative clustering based on
     a similarity threshold (determined from fg/bg distribution).
@@ -386,8 +392,13 @@ def merge_foreground_clusters(
     :rtype: np.ndarray
     """
     # distance_cutoff = 1 - similarity_cutoff
+    if n_classes > 0:
+        distance_cutoff = None
+    else:
+        n_classes = None
+
     cluster = AgglomerativeClustering(
-        n_clusters=None,
+        n_clusters=n_classes,
         metric="euclidean",
         linkage="complete",
         distance_threshold=distance_cutoff,
