@@ -29,14 +29,15 @@ np.random.seed(2189)
 
 CWD = os.getcwd()
 DIR = f"{CWD}/experiments/object_segmentation/"
-# DATA_DIR = f"{CWD}/experiments/object_segmentation/datasets/CUB_200_2011"
-DATA_DIR = f"{CWD}/experiments/object_segmentation/datasets/both/"
+#DATA_DIR = f"{CWD}/experiments/object_segmentation/datasets/CUB_200_2011/"
+DATA_DIR = f"{CWD}/experiments/object_segmentation/datasets/DUTS-TE/"
+#DATA_DIR = f"{CWD}/experiments/object_segmentation/datasets/both/"
 IMGS = f"{DATA_DIR}test_images/"
 SEGS = f"{DATA_DIR}test_segmentations/"
 
 PATCH_SIZE = 14
-PLOT_PER = 1
-SAVE_PER = 1
+PLOT_PER = 10
+SAVE_PER = 10
 N_IMGS = len(os.listdir(IMGS))
 
 
@@ -91,7 +92,8 @@ def plot_result(
 
 
 def save_result(save_data: List, new: bool = False) -> None:
-    with open(f"{DIR}/out/results.csv", "w+", newline="") as csvfile:
+    mode = 'w+' if new == True else 'a'
+    with open(f"{DIR}/out/results.csv", mode, newline="") as csvfile:
         writer = csv.writer(csvfile)
         if new:
             writer.writerow(["Img idx", "Img path", "mIoU", "Dataset mIoU"])

@@ -174,3 +174,5 @@ cython_debug/
 *.mp4
 *frame*
 *old_data*
+requirements.txt
+*requirements*

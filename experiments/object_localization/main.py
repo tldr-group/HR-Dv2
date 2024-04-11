@@ -96,7 +96,8 @@ def plot_results(
 
 
 def save_results(save_data: List, new: bool = False) -> None:
-    with open(f"{DIR}/out/results.csv", "w+", newline="") as csvfile:
+    mode = "w+" if new else "a"
+    with open(f"{DIR}/out/results.csv", mode, newline="") as csvfile:
         writer = csv.writer(csvfile)
         if new:
             writer.writerow(
@@ -150,7 +151,7 @@ def main() -> None:
     net.eval()
 
     # VOC07, test     VOC12, trainval
-    dataset = Dataset("VOC07", "test", True, tr.to_norm_tensor, DIR)
+    dataset = Dataset("VOC12", "trainval", True, tr.to_norm_tensor, DIR)
     corlocs = []
     n_boxes = []
     save_data = []
