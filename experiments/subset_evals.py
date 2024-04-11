@@ -45,20 +45,31 @@ def get_net(json: dict) -> nn.Module:
 
 def object_localize(net: nn.Module, n: int, json: dict) -> None:
     dataset = Dataset(
-        "VOC07", "test", True, tr.to_norm_tensor, "/media/ronan/T7/phd/HR_DV2"
+        "VOC07",
+        "test",
+        True,
+        tr.to_norm_tensor,
+        "experiments/object_localization/",
     )
     obj_loop(net, dataset, n, json, "experiments/subsets/dino", 1)
 
 
 def object_segment(net: nn.Module, n: int, json: dict) -> None:
-    seg_loop(net, n, json, "experiments/subsets/dino", 1)
+    seg_loop(
+        net,
+        "experiments/object_segmentation/datasets/both/",
+        n,
+        json,
+        "experiments/subsets/dino/",
+        1,
+    )
 
 
 if __name__ == "__main__":
     with open("experiments/exprs.json") as f:
         expr_json = load(f)
 
-    json = expr_json["vanilla_dv2"]
+    json = expr_json["vanilla_dino"]
     net = get_net(json)
-    seg_loop(net, 40, json, "experiments/subsets/dv2/seg/")
+    object_localize(net, 40, json)
     # object_localize(net, 40, json)

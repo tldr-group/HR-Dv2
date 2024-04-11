@@ -28,14 +28,13 @@ CWD = os.getcwd()
 DIR = f"{CWD}/experiments/object_segmentation/"
 # DATA_DIR = f"{CWD}/experiments/object_segmentation/datasets/CUB_200_2011"
 # DATA_DIR = f"{CWD}/experiments/object_segmentation/datasets/both/"
-DATA_DIR = "/media/ronan/T7/phd/HR_DV2/datasets/fg_mix/"
-IMGS = f"{DATA_DIR}test_images/"
-SEGS = f"{DATA_DIR}test_segmentations/"
+# DATA_DIR = "/media/ronan/T7/phd/HR_DV2/datasets/fg_mix/"
+
 
 PATCH_SIZE = 14
 PLOT_PER = 1
 SAVE_PER = 1
-N_IMGS = len(os.listdir(IMGS))
+# N_IMGS = len(os.listdir(IMGS))
 
 
 def compute_iou(pred, target):
@@ -106,6 +105,7 @@ def save_result(save_data: List, new: bool = False) -> None:
 
 def loop(
     net: torch.nn.Module,
+    data_dir: str,
     n: int,
     json: dict,
     save_dir: str,
@@ -114,6 +114,9 @@ def loop(
 
     ious = []
     save_data = []
+    IMGS = f"{data_dir}test_images/"
+    SEGS = f"{data_dir}test_segmentations/"
+    N_IMGS = len(os.listdir(IMGS))
 
     for i in range(N_IMGS):
         img_path = f"{IMGS}{i}.jpg"

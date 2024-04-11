@@ -26,7 +26,7 @@
         "dtype": "float16",
         "do_flips": true,
         "do_shifts": true,
-        "max_shift_px": 2,
+        "max_shift_px": 3,
         "attn": "o",
         "sequential": true,
         "n_clusters": 80,
