@@ -2,7 +2,7 @@ from os import getcwd, mkdir, listdir
 from shutil import copyfile
 import numpy as np
 
-np.random.seed(2189)
+np.random.seed(2289)
 
 CWD = getcwd()
 BOTH = f"{CWD}/experiments/object_segmentation/datasets/both/"

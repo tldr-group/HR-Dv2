@@ -52,10 +52,14 @@ Two possible 'paths'
 - [x] Add rotation transforms, test in microstructure
 - [x] Visualise CLS/Attention maps, also high-res them if cheap. Try use that for fg/bg detection
 - [x] Test automated 1st PCA component/fg threshold finding using entropy per unit area
+- [x] Evaluation of object localization on VOC07 & 12, compare w/ MOST
+- [x] Evaluation of foreground segmentation on [CUBS-200-2011](https://www.vision.caltech.edu/datasets/cub_200_2011/), [DUTS](http://saliencydetection.net/duts/)
 - [ ] Add option to use q,k or v values from attention of CLS (& compare perf)
+- [ ] Update segment to use updated crf
+- [ ] Add option to use FeatUp's JBU as feature upscaler
 - [ ] Add option to use different ViTs (like DINO or SAM)
-- [ ] Evaluation of object localization on VOC07 & 12, compare w/ MOST
-- [ ] Evaluation of foreground segmentation on [CUBS-200-2011](https://www.vision.caltech.edu/datasets/cub_200_2011/), [DUTS](http://saliencydetection.net/duts/)
+- [ ] Add small hyperparam optimization task (mix of foreground seg & localization across various DS)
+- [ ] Ablations
 - [ ] Evalutation of semantic segmentation on Pascal VOC12, compare w/ 'Deep spectral Methods ...' 
 - [ ] Evaluation co-segmentation performance on CUBS, comparison to 'Deep ViT Features as Dense Visual Descriptors'
 

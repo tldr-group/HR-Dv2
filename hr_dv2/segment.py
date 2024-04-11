@@ -4,6 +4,7 @@ import numpy as np
 from time import time
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans, AgglomerativeClustering
+from skimage.segmentation import slic
 
 import pydensecrf.densecrf as dcrf
 from pydensecrf.utils import unary_from_labels
@@ -172,6 +173,9 @@ def cluster(
         net.set_transforms(fwd, inv)
     else:
         attn = np.zeros_like(img_arr)
+    # TODO: find a way to get attention and features out in a single forward pass: maybe by including unperturbed
+    # Maybe by assuming it's always batched and we only want attention of first item in batch
+    # How can we
     hr_tensor, _ = net.forward(img_tensor, attn="none")
     features: np.ndarray
     b, c, fh, fw = hr_tensor.shape
@@ -179,6 +183,7 @@ def cluster(
     reshaped = features.reshape((c, fh * fw)).T
 
     normed = normalise_pca(reshaped)
+    # TODO: add a fast PCA in here?
 
     cluster = KMeans(n_clusters=n_clusters, n_init="auto", max_iter=300)
     labels = cluster.fit_predict(normed)
@@ -186,8 +191,62 @@ def cluster(
     end = time()
     if verbose:
         print(f"Finished in {end-start}s")
-    # TODO: return features here as well
+
     return labels, attn, cluster.cluster_centers_, features
+
+
+def superpixel(
+    net: HighResDV2,
+    img_arr: np.ndarray,
+    img_tensor: torch.Tensor,
+    n_clusters: int,
+    get_attn: bool = True,
+    verbose: bool = False,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    start = time()
+    attn: np.ndarray
+    if get_attn:
+        # Cache old transforms
+        fwd, inv = net.transforms, net.inverse_transforms
+        net.set_transforms([], [])
+        attn_tensor, _ = net.forward(img_tensor, attn="cls")
+        attn = tr.to_numpy(attn_tensor)
+        # Add them back
+        net.set_transforms(fwd, inv)
+    else:
+        attn = np.zeros_like(img_arr)
+    hr_tensor, _ = net.forward(img_tensor, attn="none")
+    features: np.ndarray
+    b, c, fh, fw = hr_tensor.shape
+    features = tr.to_numpy(hr_tensor)
+
+    labels = slic(
+        img_arr,
+        slic_zero=True,
+        start_label=0,
+        compactness=0.1,
+    )
+
+    end = time()
+    if verbose:
+        print(f"Finished in {end-start}s")
+
+    return labels, attn, features
+
+
+def avg_features_over_labels(
+    features: np.ndarray, labels: np.ndarray
+) -> list[np.ndarray]:
+    out: list[np.ndarray] = []
+    n_clusters = np.amax(labels)
+    print(features.shape, labels.shape)
+    for i in range(n_clusters):
+        mask = np.where(labels == i, 1, 0).astype(np.bool_)
+        mask = np.expand_dims(mask, 0)
+        mask = np.repeat(mask, features.shape[0], 0)
+        centroid = np.mean(features, axis=0, where=mask)
+        out.append(centroid)
+    return out
 
 
 def get_attn_density(
@@ -205,8 +264,7 @@ def get_attn_density(
     """
     densities = []
     attention_density_map = np.zeros_like(labels_arr).astype(np.float64)
-    n_clusters = np.amax(labels_arr)
-    for n in range(n_clusters):
+    for n in np.unique(labels_arr):
         binary_mask = np.where(labels_arr == n, 1, 0)
         n_pix = np.sum(binary_mask)
         cluster_attn = np.sum(attn * binary_mask)
@@ -271,7 +329,7 @@ def get_similarity_cutoff(fg_bg_similarities: List[float]) -> float:
     :rtype: float
     """
     bins, edges = np.histogram(fg_bg_similarities, bins=20)
-    similarity_cutoff = edges[np.argmax(bins)]  # + edges[np.argmax(bins) + 1]) / 2
+    similarity_cutoff = edges[np.argmax(bins) + 1]  # + edges[np.argmax(bins) + 1]) / 2
     return similarity_cutoff
 
 
@@ -356,7 +414,9 @@ def foreground_segment(
     :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
     """
     h, w, c = img_arr.shape
-    seg, attn, _ = cluster(net, img_arr, img_tensor, n_cluster, True, False)
+    seg, attn, centres, features = cluster(
+        net, img_arr, img_tensor, n_cluster, True, False
+    )
     seg = seg.reshape((h, w))
     sum_cls = np.sum(attn, axis=0)
     density_map, densities = get_attn_density(seg, sum_cls)
@@ -375,7 +435,7 @@ def multi_object_foreground_segment(
     img_tensor: torch.Tensor,
     n_cluster: int,
     crf_params: CRFParams,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, list[float]]:
     """Clustering based multi-object localization:
 
     1) get high res features and attn from ViT
@@ -400,7 +460,9 @@ def multi_object_foreground_segment(
     :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
     """
     h, w, c = img_arr.shape
-    seg, attn, centers = cluster(net, img_arr, img_tensor, n_cluster, True, False)
+    seg, attn, centers, features = cluster(
+        net, img_arr, img_tensor, n_cluster, True, False
+    )
     seg = seg.reshape((h, w))
     sum_cls = np.sum(attn, axis=0)
     density_map, densities = get_attn_density(seg, sum_cls)
@@ -414,14 +476,20 @@ def multi_object_foreground_segment(
 
     fg_bg_sims, fg_fg_sims = get_feature_similarities(fg_clusters, bg_clusters)
     sim_cutoff = get_similarity_cutoff(fg_bg_sims)
-    fg_clustered = merge_foreground_clusters(fg_clusters, sim_cutoff)
-    refined, unrefined = split_foreground_and_refine(
-        fg_mask, fg_clustered, seg, img_arr, crf_params
+    merged_clusters = merge_foreground_clusters(centers, sim_cutoff)
+
+    semantic_seg = np.zeros((h, w))
+    for i, val in enumerate(np.unique(seg)):
+        current_class = np.where(seg == val, merged_clusters[i], 0)
+        semantic_seg += current_class
+
+    refined = do_crf_from_labels(
+        semantic_seg, img_arr, max(merged_clusters) + 1, crf_params
     )
-    if np.sum(refined) < SMALL_OBJECT_AREA_CUTOFF:
-        refined = unrefined
-    binary = np.where(refined > 0, 1, 0)
-    return refined, unrefined, density_map, binary
+    refined_density_map, refined_densities = get_attn_density(
+        refined.squeeze(-1), sum_cls
+    )
+    return refined, refined_density_map, refined_densities
 
 
 def get_bbox(arr: np.ndarray, offsets: Tuple[int, int] = (0, 0)) -> List[int]:

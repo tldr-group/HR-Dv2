@@ -39,8 +39,8 @@ def compute_shift_directions(
 def get_shift_transforms(
     dists: List[int], pattern: Literal["Neumann", "Moore"]
 ) -> Tuple[PartialTrs, PartialTrs]:
-    transforms: PartialTrs = []
-    inv_transforms: PartialTrs = []
+    transforms: PartialTrs = [true_iden_partial]
+    inv_transforms: PartialTrs = [true_iden_partial]
     shifts = compute_shift_directions(pattern)
 
     def roll_arg_rev(shift: Tuple[int, int], x: torch.Tensor) -> torch.Tensor:
@@ -94,7 +94,12 @@ def iden(x: torch.Tensor) -> torch.Tensor:
     return x
 
 
+def true_iden(x: torch.Tensor) -> torch.Tensor:
+    return x
+
+
 iden_partial = partial(iden)
+true_iden_partial = partial(true_iden)
 
 
 def get_flip_transforms() -> Tuple[PartialTrs, PartialTrs]:

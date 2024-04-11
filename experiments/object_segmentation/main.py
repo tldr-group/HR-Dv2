@@ -89,6 +89,7 @@ def plot_result(
     plt.suptitle(f"{idx} mIoU: {iou :.4f}")
     plt.tight_layout()
     plt.savefig(f"{DIR}/out/{idx}.png")
+    plt.close()
 
 
 def save_result(save_data: List, new: bool = False) -> None:
@@ -149,9 +150,18 @@ def main():
 
         if i % PLOT_PER == 0:
             plot_result(refined, gt, img_arr, i, iou)
-        if i % SAVE_PER == 0 and i > 0:
+        if i % SAVE_PER == 0 and i > 1:
             new = i == SAVE_PER
-            print(f"{i}/{N_IMGS}: mIoU={np.mean(ious):.4f}+/-{np.std(ious):.4f}")
+            cub_ious = []
+            dut_ious = []
+            for i, iou in enumerate(ious):
+                if i % 2 == 0:
+                    dut_ious.append(iou)
+                else:
+                    cub_ious.append(iou)
+            print(
+                f"{i}/{N_IMGS}: CUBS mIoU={np.mean(cub_ious):.4f}+/-{np.std(cub_ious):.4f} \n DUTS mIoU={np.mean(dut_ious):.4f}+/-{np.std(dut_ious):.4f} "
+            )
             save_result(save_data, new)
 
 
