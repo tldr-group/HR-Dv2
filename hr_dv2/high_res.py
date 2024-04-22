@@ -118,8 +118,8 @@ class HighResDV2(nn.Module):
         """
 
         new_stride_pair = torch.nn.modules.utils._pair(stride_l)
-        if new_stride_pair == self.stride:
-            return  # early return as nothing to be done
+        # if new_stride_pair == self.stride:
+        #    return  # early return as nothing to be done
         self.stride = new_stride_pair
         dino_model.patch_embed.proj.stride = new_stride_pair  # type: ignore
         if verbose:
