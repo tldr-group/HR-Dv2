@@ -67,7 +67,7 @@ Two possible 'paths'
 - [ ] Clean up notebooks: comparison should now include comparisons of methods (resize, strided, JBU, ours) and comparisons of different nets for ours (dinov8/16, dv2, vit and deit)
 - [ ] Clean up source code: fix docstrings, remove old methods, rebalance utils vs transform. Can you rewrite the patching better?
 - [ ] Read linked papers/email FeatUp to find their linear probe training setup "linear probes are trained with separate Adam optimizers using a learning rate of .005" i.e a linear layer that maps from C -> n_classes (27 for coco). They train on COCO-Stuff training data, predicting the 27 coarse classes and using cross-entropy loss. They report numbers on validation set. I assume they don't normalise features either
-- [ ] Linear probe eval on COCO-Stuff as in FeatUp
+- [ ] Linear probe eval on COCO-Stuff as in FeatUp (ViT-S16, DINO8)
 - [ ] Retrieval demonstration as in figure 15
 - [ ] Evalutation of semantic segmentation on Pascal VOC12, compare w/ 'Deep spectral Methods ...' 
 - [ ] Evaluation co-segmentation performance on CUBS, comparison to 'Deep ViT Features as Dense Visual Descriptors'

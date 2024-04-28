@@ -408,7 +408,7 @@ def merge_foreground_clusters(
 
     cluster = AgglomerativeClustering(
         n_clusters=n_classes,
-        metric="euclidean",
+        metric="euclidean",  # it says euclidean but if features normed this is cosine
         linkage="complete",
         distance_threshold=distance_cutoff,
     )

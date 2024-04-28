@@ -176,3 +176,5 @@ cython_debug/
 *frame*
 *old_data*
 *cuda_cmd*
+*subsets*
+*fig_data*

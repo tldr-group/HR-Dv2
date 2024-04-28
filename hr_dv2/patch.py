@@ -166,7 +166,7 @@ class Patch:
             x = (attn @ v).transpose(1, 2).reshape(B, N, C)
             x = self.proj(x)
             x = self.proj_drop(x)
-            # print(x.shape)
+
             return x
 
         return forward
@@ -290,7 +290,6 @@ class Patch:
                 x = x + ffn_residual_func(x)
                 x = torch.concat((x, a), dim=-1)
                 return x
-            print(self.training)
             if self.training and self.sample_drop_ratio > 0.1:
                 # the overhead is compensated only for a drop path rate larger than 0.1
                 x = drop_add_residual_stochastic_depth(
@@ -415,7 +414,6 @@ class Patch:
             self, x, masks=None, attn_choice: AttentionOptions = "none"
         ):
             B, nc, w, h = x.shape
-            print(x.shape)
 
             x = self.patch_embed(x)
             x = torch.cat((self.cls_token.expand(x.shape[0], -1, -1), x), dim=1)
