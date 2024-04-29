@@ -41,11 +41,11 @@ class HighResDV2(nn.Module):
             hub_path = "facebookresearch/dino:main"
             self.dinov2: nn.Module = torch.hub.load(hub_path, dino_name)
         elif "deit" in dino_name:
-            self.dinov2: nn.Module = create_model(
+            self.dinov2: nn.Module = create_model(  # was 224
                 "deit_small_patch16_224", pretrained=True
             )
         else:
-            self.dinov2: nn.Module = create_model(
+            self.dinov2: nn.Module = create_model(  # was 224
                 "vit_small_patch16_224", pretrained=True
             )
 
