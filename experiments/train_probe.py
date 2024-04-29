@@ -14,6 +14,9 @@ from hr_dv2 import HighResDV2
 import hr_dv2.transform as tr
 import numpy as np
 
+from os import mkdir
+import os, sys
+
 from semantic_seg.datasets.coco import (
     Coco,
     inp_tr,
@@ -46,7 +49,7 @@ val = Coco(
     coarse_labels=False,
 )
 
-BATCH_SIZE = 128
+BATCH_SIZE = 20
 train_loader = DataLoader(
     train, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True, num_workers=12
 )
@@ -55,13 +58,14 @@ val_loader = DataLoader(
 )
 # NEED TO FEATURISE IMAGE FIRST! maybe use a hrdv2?
 N_FEAT_DIM = 384
-featurizer = HighResDV2("vit_vits16", 16, pca_dim=-1, dtype=torch.float16)
+featurizer = HighResDV2("vit_vits16_384", 16, pca_dim=-1, dtype=torch.float16)
+featurizer.set_model_stride(featurizer.dinov2, 16)
 featurizer.cuda()
 featurizer.eval()
 
 net = nn.Conv2d(N_FEAT_DIM, 27, 1, 1)
 net.cuda()
-optim = torch.optim.Adam(net.parameters(), 0.001)
+optim = torch.optim.Adam(net.parameters(), 0.005)
 loss = nn.CrossEntropyLoss(ignore_index=-1)
 
 acc = Accuracy(num_classes=27, task="multiclass", top_k=1, ignore_index=-1).cuda()
@@ -70,6 +74,34 @@ jac = JaccardIndex(num_classes=27, task="multiclass", ignore_index=-1).cuda()
 TRAIN_BATCHES_PER_EPOCH = 100  # 100
 VAL_BATCHES_PER_EPOCH = 10
 N_EPOCHS = 200
+
+
+class HiddenPrints:
+    def __enter__(self):
+        self._original_stdout = sys.stdout
+        sys.stdout = open(os.devnull, "w")
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        sys.stdout.close()
+        sys.stdout = self._original_stdout
+
+
+def prepare_outdir(save_dir: str):
+    for dir in [
+        save_dir,
+        f"{save_dir}/plot",
+        f"{save_dir}/grid",
+        f"{save_dir}/chk",
+        f"{save_dir}/val",
+        f"{save_dir}/val/grid",
+    ]:
+        try:
+            mkdir(dir)
+        except FileExistsError:
+            pass
+
+
+SAVE_DIR = "experiments/probe_out/vit16s384"
 
 
 def visualise_batch(
@@ -106,7 +138,7 @@ def visualise_batch(
             axs[row, col].set_axis_off()
     plt.suptitle(f"{title} predictions")
     plt.tight_layout()
-    plt.savefig(f"{save_dir}/{epoch}_{title}_grid.png")
+    plt.savefig(f"{save_dir}/grid/{epoch}_{title}.png")
     plt.close(fig)
 
 
@@ -122,16 +154,16 @@ def plot_losses(
     plt.ylabel("Loss")
     plt.legend()
 
-    plt.savefig(f"{save_dir}/{epochs[-1]}_plot.png")
+    plt.savefig(f"{save_dir}/plot/{epochs[-1]}.png")
 
     plt.close(fig)
 
 
 def get_spatialized_features(
     x: torch.Tensor,
-    img_w: int = 224,
-    img_h: int = 224,
-    patch_size: int = 16,
+    img_w: int = 384,
+    img_h: int = 384,
+    patch_size: int = 8,
     high_res: bool = False,
 ) -> torch.Tensor:
     if high_res is False:
@@ -188,8 +220,16 @@ def do_epoch(
     train: bool = True,
 ) -> float:
     epoch_loss = 0.0
+    acc.reset()
+    jac.reset()
+
     for i, data in enumerate(loader):
         if i > n_batches:
+            if train is False:
+                avg_acc = acc.compute()
+                avg_miou = jac.compute()
+                print(f"validation accuracy {avg_acc}")
+                print(f"validation mIoU {avg_miou}")
             return epoch_loss
         x, y = data["img"], data["label"]
         x, y = x.cuda(), y.cuda()
@@ -199,19 +239,24 @@ def do_epoch(
 
         epoch_loss += loss
 
+        if train is False:
+            acc.update(y_pred, y)
+            jac.update(y_pred, y)
+
         x = x.cpu().detach().numpy()
         y = y.cpu().detach().numpy()
         y_pred = torch.argmax(y_pred, dim=1).cpu().detach().numpy()
 
         if i == n_batches:
-            visualise_batch(x, y, y_pred, 10, "experiments/probe_out", epoch, train)
+            visualise_batch(x, y, y_pred, 10, SAVE_DIR, epoch, train)
             if train:
-                torch.save(net, f"experiments/probe_out/{epoch}.pth")
+                torch.save(net, f"{SAVE_DIR}/chk/{epoch}.pth")
 
     return epoch_loss
 
 
 def train_loop():
+    prepare_outdir(SAVE_DIR)
     train_losses, val_losses, epochs = [], [], []
     for i in range(N_EPOCHS):
         epoch_loss = do_epoch(
@@ -224,26 +269,26 @@ def train_loop():
         epochs.append(i)
         train_losses.append(epoch_loss)
         val_losses.append(val_loss)
-        plot_losses(train_losses, val_losses, epochs, "experiments/probe_out")
+        plot_losses(train_losses, val_losses, epochs, SAVE_DIR)
         print(f"[{i}/{N_EPOCHS}]: {epoch_loss}")
 
 
 def val_loop(high_res: bool = False):
-    classifier = torch.load("experiments/probe_out/best_small_batch_178.pth")
+    prepare_outdir(SAVE_DIR)
+    acc.reset()
+    jac.reset()
+    classifier = torch.load("experiments/probe_out/best_small_batch_178_vit16s.pth")
     featurizer.set_model_stride(featurizer.dinov2, 4)
-    featurizer.interpolation_mode = "bilinear"
+    featurizer.interpolation_mode = "nearest-exact"
 
     if high_res:
         fwd_shift, inv_shift = tr.get_shift_transforms(
-            [
-                1,
-                2,
-            ],
+            [1, 2, 3],
             "Moore",
         )
         fwd_flip, inv_flip = tr.get_flip_transforms()
         fwd, inv = tr.combine_transforms(fwd_shift, fwd_flip, inv_shift, inv_flip)
-        featurizer.set_transforms(fwd, inv)
+        featurizer.set_transforms(fwd_shift, inv_shift)
 
     for i, data in enumerate(val_loader):
         print(i)
@@ -255,26 +300,25 @@ def val_loop(high_res: bool = False):
             classifier, x, y, loss, optim, False, high_res=high_res
         )
 
-        acc.update(y_pred, y)
-        jac.update(y_pred, y)
+        with HiddenPrints():
+            acc.update(y_pred, y)
+            jac.update(y_pred, y)
 
         x = x.cpu().detach().numpy()
         y = y.cpu().detach().numpy()
         y_pred = torch.argmax(y_pred, dim=1).cpu().detach().numpy()
 
         try:
-            visualise_batch(x, y, y_pred, 10, "experiments/probe_out/val", i, False)
+            visualise_batch(x, y, y_pred, 10, f"{SAVE_DIR}/val", i, False)
         except IndexError:  # uneven final batch
             pass
 
-    print(acc.compute())
-    print(jac.compute())
+    print(f"validation accuracy {acc.compute()}")
+    print(f"validation mIoU {jac.compute()}")
 
 
 if __name__ == "__main__":
-    val_loop(True)
-
-
+    train_loop()
 """
 theirs:
 vit16s:
@@ -294,5 +338,13 @@ mIoU: tensor(0.3973, device='cuda:0')
 vit16s-strided (no bilinear):
 top-1 acc: tensor(0.6241, device='cuda:0')
 mIoU: tensor(0.3839, device='cuda:0')
+
+vit16s-strided (bilinear):
+top-1 acc: tensor(0.6423, device='cuda:0')
+mIoU: tensor(0.4001, device='cuda:0')
+
+hr-dv2-vit16s (shifts + flips)
+top-1 acc: tensor(0.6510, device='cuda:0')
+mIoU: tensor(0.4060, device='cuda:0')
 
 """
