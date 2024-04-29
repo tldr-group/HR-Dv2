@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torchvision.utils import make_grid
+from torchvision.transforms.functional import to_pil_image
 
 torch.cuda.empty_cache()
 
@@ -9,6 +10,8 @@ from timm import create_model
 from hr_dv2 import HighResDV2
 
 from semantic_seg.datasets.coco import Coco, inp_tr, label_tr
+
+import matplotlib.pyplot as plt
 
 train = Coco("experiments/semantic_seg/datasets/coco", "train", inp_tr, label_tr)
 val = Coco("experiments/semantic_seg/datasets/coco", "val", inp_tr, label_tr)
@@ -40,11 +43,7 @@ def visualise_batch(
     x: torch.Tensor, y: torch.Tensor, y_pred: torch.Tensor, n: int
 ) -> None:
     x, y, y_pred = x[:n], y[:n], y_pred[:n]
-    to_viz = torch.concat((x, y, y_pred))
-    grid = make_grid(
-        to_viz,
-        nrow=n,
-    )
+    fig, axs = plt.subplots()
 
 
 def plot_losses(
@@ -81,7 +80,7 @@ def feed_batch(
     loss_fn: nn.CrossEntropyLoss,
     optim: torch.optim.Adam,
     train: bool = True,
-) -> float:
+) -> tuple[torch.Tensor, float]:
     optim.zero_grad()
     with torch.no_grad():
         feats = get_spatialized_features(x)
@@ -91,7 +90,7 @@ def feed_batch(
     if train:
         loss.backward()
         optim.step()
-    return loss.item()
+    return y_pred loss.item()
 
 
 def do_epoch(
@@ -110,7 +109,14 @@ def do_epoch(
         x, y = x.cuda(), y.cuda()
         x = x.to(torch.half)
 
-        epoch_loss += feed_batch(net, x, y, loss_fn, optim, train)
+        y_pred, loss = feed_batch(net, x, y, loss_fn, optim, train)
+
+        epoch_loss += loss
+
+        x = x.cpu()
+        y = y.cpu()
+
+        # add vis in here?
     return epoch_loss
 
 

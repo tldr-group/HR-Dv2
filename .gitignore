@@ -164,6 +164,8 @@ cython_debug/
 *experiments/object_localization/out/*
 *experiments/object_segmentation/datasets/*
 *experiments/object_segmentation/out/*
+*experiments/semantic_seg/datasets/*
+*experiments/semantic_seg/out/*
 *dinov2/*
 *FeatUp*
 *.venv*
@@ -176,3 +178,6 @@ cython_debug/
 *frame*
 *old_data*
 *cuda_cmd*
+*FeatUp*
+*subsets*
+*experiments*.zip
