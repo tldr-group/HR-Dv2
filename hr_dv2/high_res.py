@@ -34,18 +34,23 @@ class HighResDV2(nn.Module):
     ) -> None:
         super().__init__()
 
+        self.dinov2: nn.Module
         if "dinov2" in dino_name:
             hub_path = "facebookresearch/dinov2"
-            self.dinov2: nn.Module = torch.hub.load(hub_path, dino_name)
+            self.dinov2 = torch.hub.load(hub_path, dino_name)
         elif "dino" in dino_name:
             hub_path = "facebookresearch/dino:main"
-            self.dinov2: nn.Module = torch.hub.load(hub_path, dino_name)
+            self.dinov2 = torch.hub.load(hub_path, dino_name)
         elif "deit" in dino_name:
-            self.dinov2: nn.Module = create_model(  # was 224
+            self.dinov2 = create_model(  # was 224
                 "deit_small_patch16_224", pretrained=True
             )
+        elif "384" in dino_name:
+            self.dinov2 = create_model(  # was 224
+                "vit_small_patch16_384", pretrained=True
+            )
         else:
-            self.dinov2: nn.Module = create_model(  # was 224
+            self.dinov2 = create_model(  # was 224
                 "vit_small_patch16_224", pretrained=True
             )
 

@@ -178,6 +178,20 @@ def do_crf_from_distances(
     return refined
 
 
+def cluster(
+    normed_feats: np.ndarray,
+    n_clusters: int,
+    n_samples: int = 50000,
+) -> tuple[np.ndarray, np.ndarray]:
+    n_pix = normed_feats.shape[0]
+    random_inds = np.random.choice(np.arange(n_pix), min(n_samples, n_pix), False)
+
+    cluster = KMeans(n_clusters=n_clusters, n_init="auto", max_iter=300)
+    cluster.fit(normed_feats[random_inds])
+    labels = cluster.predict(normed_feats)
+    return labels, cluster.cluster_centers_
+
+
 def fwd_and_cluster(
     net: HighResDV2,
     img_tensor: torch.Tensor,
@@ -227,18 +241,20 @@ def fwd_and_cluster(
 
     normed = normalise_pca(reshaped)
 
-    n_pix = normed.shape[0]
-    random_inds = np.random.choice(np.arange(n_pix), min(50000, n_pix), False)
+    # n_pix = normed.shape[0]
+    # random_inds = np.random.choice(np.arange(n_pix), min(50000, n_pix), False)
 
-    cluster = KMeans(n_clusters=n_clusters, n_init="auto", max_iter=300)
-    cluster.fit(normed[random_inds])
-    labels = cluster.predict(normed)
+    # cluster = KMeans(n_clusters=n_clusters, n_init="auto", max_iter=300)
+    # cluster.fit(normed[random_inds])
+    # labels = cluster.predict(normed)
+
+    labels, centers = cluster(normed, n_clusters)
 
     end = time()
     if verbose:
         print(f"Finished in {end-start}s")
 
-    return labels, cluster.cluster_centers_, features, attention, normed
+    return labels, centers, features, attention, normed
 
 
 def semantic_segment(
