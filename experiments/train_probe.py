@@ -65,13 +65,13 @@ featurizer.eval()
 
 net = nn.Conv2d(N_FEAT_DIM, 27, 1, 1)
 net.cuda()
-optim = torch.optim.Adam(net.parameters(), 0.005)
+optim = torch.optim.Adam(net.parameters(), 0.001)
 loss = nn.CrossEntropyLoss(ignore_index=-1)
 
 acc = Accuracy(num_classes=27, task="multiclass", top_k=1, ignore_index=-1).cuda()
 jac = JaccardIndex(num_classes=27, task="multiclass", ignore_index=-1).cuda()
 
-TRAIN_BATCHES_PER_EPOCH = 100  # 100
+TRAIN_BATCHES_PER_EPOCH = 1000  # 100
 VAL_BATCHES_PER_EPOCH = 10
 N_EPOCHS = 200
 
@@ -101,7 +101,7 @@ def prepare_outdir(save_dir: str):
             pass
 
 
-SAVE_DIR = "experiments/probe_out/vit16s384"
+SAVE_DIR = "experiments/probe_out/vit16s384_small_batch_more_data"
 
 
 def visualise_batch(
