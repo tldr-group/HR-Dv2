@@ -25,9 +25,6 @@ from PIL import Image  # type: ignore
 import matplotlib.pyplot as plt
 
 
-jac = JaccardIndex(num_classes=21, task="multiclass", ignore_index=-1).cuda()
-
-
 class ResizeLongestSide:
     """
     Resizes images to the longest side 'target_length', as well as provides
@@ -199,74 +196,76 @@ cmap = create_pascal_label_colormap()
 inp_transform, targ_transform = ResizeLongestSide(518, True), ResizeLongestSide(518)
 
 
-backbone_name = "dinov2_vits14"
-net = HighResDV2(backbone_name, 4, dtype=torch.float16)  # dino_vits8 #dinov2_vits14_reg
-# net.interpolation_mode = "bilinear"
-net.interpolation_mode = "nearest-exact"
-net.eval()
-net.cuda()
+if __name__ == "__main__":
+    jac = JaccardIndex(num_classes=21, task="multiclass", ignore_index=-1).cuda()
+    backbone_name = "dinov2_vits14"
+    net = HighResDV2(
+        backbone_name, 4, dtype=torch.float16
+    )  # dino_vits8 #dinov2_vits14_reg
+    # net.interpolation_mode = "bilinear"
+    net.interpolation_mode = "nearest-exact"
+    net.eval()
+    net.cuda()
 
-fwd_shift, inv_shift = tr.get_shift_transforms([1, 2], "Moore")
-fwd_flip, inv_flip = tr.get_flip_transforms()
-fwd, inv = tr.combine_transforms(fwd_shift, fwd_flip, inv_shift, inv_flip)
-net.set_transforms(fwd_shift, inv_shift)
+    fwd_shift, inv_shift = tr.get_shift_transforms([1, 2], "Moore")
+    fwd_flip, inv_flip = tr.get_flip_transforms()
+    fwd, inv = tr.combine_transforms(fwd_shift, fwd_flip, inv_shift, inv_flip)
+    net.set_transforms(fwd_shift, inv_shift)
 
+    jbu = torch.hub.load("mhamilton723/FeatUp", "dinov2", use_norm=False)
+    jbu.eval()
+    jbu.cuda()
+    pass
 
-jbu = torch.hub.load("mhamilton723/FeatUp", "dinov2", use_norm=False)
-jbu.eval()
-jbu.cuda()
-pass
+    model = LinearHead(21)
+    cfg = torch.load(
+        f"{CWD}/notebooks/figures/fig_data/dinov2_vits14_voc2012_linear_head.pth"
+    )
+    model = apply_state_dict(cfg, model)
 
-model = LinearHead(21)
-cfg = torch.load(
-    f"{CWD}/notebooks/figures/fig_data/dinov2_vits14_voc2012_linear_head.pth"
-)
-model = apply_state_dict(cfg, model)
+    dataset = torchvision.datasets.VOCSegmentation(
+        f"{CWD}/experiments/object_localization/datasets/VOC2012/",
+        download=False,
+        image_set="trainval",
+        transform=inp_transform,
+        target_transform=targ_transform,
+    )
 
+    last10x, last10y, last10y_pred = [], [], []
+    for i, batch in enumerate(dataset):
+        x, y = batch
+        C, H, W = x.shape
+        x, y = x.cuda(), y.cuda()
+        # x = x.unsqueeze(0)
 
-dataset = torchvision.datasets.VOCSegmentation(
-    f"{CWD}/experiments/object_localization/datasets/VOC2012/",
-    download=False,
-    image_set="trainval",
-    transform=inp_transform,
-    target_transform=targ_transform,
-)
+        feats = jbu.forward(x.unsqueeze(0))
+        feats = F.interpolate(feats, (H, W))
+        logits = model(feats)
 
-last10x, last10y, last10y_pred = [], [], []
-for i, batch in enumerate(dataset):
-    x, y = batch
-    C, H, W = x.shape
-    x, y = x.cuda(), y.cuda()
-    # x = x.unsqueeze(0)
+        y = y.to(torch.long)
+        y[y > 20] = -1
+        y_pred = torch.argmax(logits, dim=1)
 
-    feats = jbu.forward(x.unsqueeze(0))
-    feats = F.interpolate(feats, (H, W))
-    logits = model(feats)
+        last10x.append(x.unsqueeze(0))
+        last10y.append(y.unsqueeze(0))
+        last10y_pred.append(y_pred)
 
-    y = y.to(torch.long)
-    y[y > 20] = -1
-    y_pred = torch.argmax(logits, dim=1)
+        jac.update(y_pred, y)
 
-    last10x.append(x.unsqueeze(0))
-    last10y.append(y.unsqueeze(0))
-    last10y_pred.append(y_pred)
+        if i > 8:
+            last10x.pop(0)
+            last10y.pop(0)
+            last10y_pred.pop(0)
 
-    jac.update(y_pred, y)
-
-    if i > 8:
-        last10x.pop(0)
-        last10y.pop(0)
-        last10y_pred.pop(0)
-
-    if i % 50 == 0 and i > 20:
-        visualise_batch(
-            last10x,
-            last10y,
-            last10y_pred,
-            f"ours {i}",
-            f"{CWD}/experiments/semantic_seg/voc_out/jbu/{i}.png",
-        )
-        print(f"[{i} / {len(dataset)}]: {jac.compute()}")
+        if i % 50 == 0 and i > 20:
+            visualise_batch(
+                last10x,
+                last10y,
+                last10y_pred,
+                f"ours {i}",
+                f"{CWD}/experiments/semantic_seg/voc_out/jbu/{i}.png",
+            )
+            print(f"[{i} / {len(dataset)}]: {jac.compute()}")
 
 
 """
