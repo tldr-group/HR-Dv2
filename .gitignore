@@ -184,3 +184,6 @@ cython_debug/
 *subsets*
 *fig_data*
 *out*
+*experiments/weakly_supervised/data/*
+*experiments/weakly_supervised/masks/*
+*experiments/weakly_supervised/*.bz2

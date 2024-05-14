@@ -1,0 +1,10 @@
+name: napari-hrdv2
+contributions:
+  commands:
+    - id: napari-hrdv2.make_qwidget
+      title: Segmenter
+      python_name: napari_hrdv2.widget:SegWidget
+  widgets:
+    - command: napari-hrdv2.make_qwidget  # note, same as command.id above
+      display_name: Segmenter
+      autogenerate: false # important if building yourself with class
