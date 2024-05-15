@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import TypeAlias, List, Tuple, Literal, cast
 
 import torch
+from torch.nn.functional import interpolate
 import hr_dv2.transform as tr
 from hr_dv2.utils import *
 from hr_dv2 import HighResDV2
@@ -234,17 +235,19 @@ class DataModel:
 
         self.worker: Process
 
-        self.get_net()
+        self.get_net("dinov2_vits14_reg")
         # our classifier's queues are swapped relative to data model
 
     def get_net(self, model_name: str = "dinov2_vits14_reg", stride: int = 4):
-        self.net = HighResDV2("dinov2_vits14_reg", stride, pca_dim=-1, dtype=16)
+        self.net = HighResDV2(model_name, stride, pca_dim=-1, dtype=16)
         self.net.cuda()
         self.net.eval()
 
         shift_dists = [i for i in range(1, 2)]
         fwd_shift, inv_shift = tr.get_shift_transforms(shift_dists, "Moore")
         self.net.set_transforms(fwd_shift, inv_shift)
+
+        # self.net = torch.hub.load("mhamilton723/FeatUp", "dinov2", use_norm=False)
         # fwd_flip, inv_flip = tr.get_flip_transforms()
         # fwd, inv = tr.combine_transforms(fwd_shift, fwd_flip, inv_shift, inv_flip)
 
@@ -264,14 +267,14 @@ class DataModel:
             np_array = np.expand_dims(np_array, -1)
             np_array = np.tile(np_array, new_shape)
             pil_image = Image.fromarray(np_array)
-            pil_image = resize_longest_side(pil_image, 320)
+            pil_image = resize_longest_side(pil_image, 518)
             np_array = np.array(pil_image)
             pil_image = pil_image.convert("RGBA")
         else:  # done s.t data channel is 1-d. fix later
             pil_image = Image.open(filepath).convert("RGB")
             np_array = np.asarray(pil_image)
             np_array = (np_array / np.amax(np_array)) * 255
-            pil_image = resize_longest_side(pil_image, 320)
+            pil_image = resize_longest_side(pil_image, 518)
             np_array = np.array(pil_image)
             pil_image = pil_image.convert("RGBA")
 
@@ -289,7 +292,9 @@ class DataModel:
         rgb_pil_img = Image.fromarray(np_array)
         tensor: torch.Tensor = tr.to_norm_tensor(rgb_pil_img)
         tensor = tensor.cuda()
+        # tensor = tensor.unsqueeze(0)
         feats = self.net.forward_sequential(tensor)
+        feats = interpolate(feats, (rgb_pil_img.height, rgb_pil_img.width))
         feats_np = tr.to_numpy(feats)
         piece.features = feats_np.transpose((1, 2, 0))
 
@@ -328,23 +333,37 @@ class DataModel:
         labels = [piece.labels_arr for piece in self.gallery]
         feats = [piece.features for piece in self.gallery]
 
-        fit_data, target_data = get_training_data(feats[0], labels[0])
-        print(fit_data.shape)
+        init = False
+        for i, (label, feat) in enumerate(zip(labels, feats)):
+            if self.gallery[i].labelled == False:
+                continue
 
-        model = LogisticRegression("l2")
-        model.fit(fit_data, target_data)
+            if init == False:
+                fit_data, target_data = get_training_data(feat, label)
+                all_fit_data = normalise_pca(fit_data)
+                all_target_data = target_data
+                init = True
+            else:
+                fit_data, target_data = get_training_data(feat, label)
+                fit_data = normalise_pca(fit_data)
+
+                all_fit_data = np.concatenate((all_fit_data, fit_data), axis=0)
+                all_target_data = np.concatenate((all_target_data, target_data), axis=0)
+
+        model = LogisticRegression("l2", n_jobs=12)
+        model.fit(all_fit_data, all_target_data)
         print("done")
 
-        h, w, c = feats[0].shape
-        flat_features = feats[0].reshape((h * w, c))
+        for piece in self.gallery:
+            feats = piece.features
+            h, w, c = feats.shape
+            flat_features = feats.reshape((h * w, c))
+            flat_feats_norm = normalise_pca(flat_features)
 
-        flat_classes = model.predict(flat_features)
-        self.gallery[0].seg_arr = flat_classes.reshape((h, w))
-        self.gallery[0].segmented = True
+            flat_classes = model.predict(flat_feats_norm)
+            piece.seg_arr = flat_classes.reshape((h, w))
+            piece.segmented = True
         self.send_queue.put("test")
-        # self.classifier.get_training_data(imgs, labels, DEAFAULT_FEATURES)
-        # self.worker = Process(target=self.classifier.train, args=())
-        # self.worker.start()
 
     def _finish_worker_thread(self):
         self.worker.terminate()
