@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from torch.nn.modules.utils import _pair
 import torch.nn.functional as F
+
 from timm import create_model
 
 from .patch import Patch
@@ -29,7 +30,7 @@ class HighResDV2(nn.Module):
         dino_name: str,
         stride: int,
         pca_dim: int = -1,
-        dtype: torch.dtype = torch.float32,
+        dtype: torch.dtype | int = torch.float32,
         track_grad: bool = False,
     ) -> None:
         super().__init__()
@@ -85,6 +86,9 @@ class HighResDV2(nn.Module):
         self.do_pca = pca_dim > 3
 
         # If we want to save memory, change to float16
+        if type(dtype) == int:
+            dtype = torch.float16 if dtype == 16 else torch.float32
+
         self.dtype = dtype
         if dtype != torch.float32:
             self = self.to(dtype)
