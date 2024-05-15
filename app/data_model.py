@@ -28,7 +28,7 @@ set_start_method("spawn", force=True)
 Point: TypeAlias = Tuple[float | int, float | int]
 Polygon: TypeAlias = List[Point]
 Rectangle: TypeAlias = Tuple[float | int, float | int, float | int, float | int]
-LabelType: TypeAlias = Literal["SAM", "Polygon", "Brush", "Rectangle", "Circle"]
+LabelType: TypeAlias = Literal["Polygon", "Brush", "Eraser"]
 
 # %% CONSTANTS
 PAD: int = 3
@@ -78,7 +78,7 @@ def create_label_mask(
         ImageDraw.Draw(temp_img).ellipse(
             arr_label_region, outline=label_val, fill=label_val
         )
-    elif label_type == "Brush":
+    elif label_type in ["Brush", "Eraser"]:
         # if brush thin then draw width 1 lines connecting points
         if int(label_width) == 1:
             ImageDraw.Draw(temp_img).line(
@@ -193,14 +193,20 @@ class Piece:
         )
         # add check here if erasing - maybe abstract this update into a function
         # everywhere that added_label_arr is set and isn't already labelled, set labels_arr to that value
-        self.labels_arr = np.where(
-            added_label_arr > 0,
-            added_label_arr,
-            self.labels_arr,
-        ).astype(np.uint8)
+        if label.class_value == 255:  # erasing
+            self.labels_arr = np.where(
+                added_label_arr == 255, 0, self.labels_arr
+            ).astype(np.uint8)
+        else:
+            self.labels_arr = np.where(
+                added_label_arr > 0,
+                added_label_arr,
+                self.labels_arr,
+            ).astype(np.uint8)
         self.label_alpha_mask = np.where(self.labels_arr > 0, True, False).astype(bool)
 
-        self.labels.append(label)
+        if label.class_value != 255:
+            self.labels.append(label)
         self.labelled = True
 
     def remove_label_by_index(self, index: int) -> None:
@@ -267,14 +273,14 @@ class DataModel:
             np_array = np.expand_dims(np_array, -1)
             np_array = np.tile(np_array, new_shape)
             pil_image = Image.fromarray(np_array)
-            pil_image = resize_longest_side(pil_image, 518)
+            pil_image = resize_longest_side(pil_image, 322)
             np_array = np.array(pil_image)
             pil_image = pil_image.convert("RGBA")
         else:  # done s.t data channel is 1-d. fix later
             pil_image = Image.open(filepath).convert("RGB")
             np_array = np.asarray(pil_image)
             np_array = (np_array / np.amax(np_array)) * 255
-            pil_image = resize_longest_side(pil_image, 518)
+            pil_image = resize_longest_side(pil_image, 322)
             np_array = np.array(pil_image)
             pil_image = pil_image.convert("RGBA")
 
@@ -323,7 +329,8 @@ class DataModel:
         label_width: float = 0,
     ) -> None:
         """Add label to the datamodel - usually called from draw_polygon_canvas on_click event."""
-        label: Label = Label(label_class, label_region, label_type, label_width)
+        current_class = label_class if label_type != "Eraser" else 255
+        label: Label = Label(current_class, label_region, label_type, label_width)
         if self.current_piece is not None:
             self.current_piece.add_label_to_mask(label)
 
@@ -340,17 +347,17 @@ class DataModel:
 
             if init == False:
                 fit_data, target_data = get_training_data(feat, label)
-                all_fit_data = normalise_pca(fit_data)
+                all_fit_data = fit_data  # normalise_pca(fit_data)
                 all_target_data = target_data
                 init = True
             else:
                 fit_data, target_data = get_training_data(feat, label)
-                fit_data = normalise_pca(fit_data)
+                # fit_data = normalise_pca(fit_data)
 
                 all_fit_data = np.concatenate((all_fit_data, fit_data), axis=0)
                 all_target_data = np.concatenate((all_target_data, target_data), axis=0)
 
-        model = LogisticRegression("l2", n_jobs=12)
+        model = LogisticRegression("l2", n_jobs=12, max_iter=1000, warm_start=True)
         model.fit(all_fit_data, all_target_data)
         print("done")
 
@@ -360,7 +367,7 @@ class DataModel:
             flat_features = feats.reshape((h * w, c))
             flat_feats_norm = normalise_pca(flat_features)
 
-            flat_classes = model.predict(flat_feats_norm)
+            flat_classes = model.predict(flat_features)
             piece.seg_arr = flat_classes.reshape((h, w))
             piece.segmented = True
         self.send_queue.put("test")

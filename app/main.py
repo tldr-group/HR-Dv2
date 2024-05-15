@@ -3,6 +3,19 @@
 import tkinter as tk
 from GUI import App, DataModel
 
+# TODO:
+# save classifier
+# model choice in app / new classifier #
+# random forest classifier
+# abstract back into threaded process class
+
+# Experiment:
+# load a few examples
+# add set of labels to N images
+# train classifer with different models
+# apply to whole dataset, measure mIoU as fn of model/n labelled examples
+
+# add CRF? make classifier use predict proba and take argmax as in random forest
 
 if __name__ == "__main__":
     root = tk.Tk()

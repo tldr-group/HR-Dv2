@@ -161,6 +161,12 @@ class App(ttk.Frame):
         def change_type(label_type: LabelType) -> None:
             print(label_type)
             self.data_model.labelling_type = label_type
+            if label_type == "Eraser":
+                self.canvas.fill_colour = self.class_colours[0]
+            else:
+                self.canvas.fill_colour = self.class_colours[
+                    self.data_model.current_class
+                ]
             self.canvas.cancel(None)
 
         def toggle_eraser() -> None:
@@ -172,26 +178,15 @@ class App(ttk.Frame):
         # in format icon path, fn, tooltip text
         dir_prefix = f"{getcwd()}/app/gui_elements/icons/"
         label_type_list: List[Tuple[str, Callable, str]] = [
-            (
-                f"{dir_prefix}smart.png",
-                lambda: change_type("SAM"),
-                "Smart Labelling",
-            ),
+            (f"{dir_prefix}brush.png", lambda: change_type("Brush"), "Brush"),
             (
                 f"{dir_prefix}polygon.png",
                 lambda: change_type("Polygon"),
                 "Polygon",
             ),
-            (f"{dir_prefix}brush.png", lambda: change_type("Brush"), "Brush"),
-            (
-                f"{dir_prefix}rectangle.png",
-                lambda: change_type("Rectangle"),
-                "Rectangle",
-            ),
-            (f"{dir_prefix}circle.png", lambda: change_type("Circle"), "Circle"),
             (
                 f"{dir_prefix}erase.png",
-                lambda: change_type("Polygon"),
+                lambda: change_type("Eraser"),
                 "Toggle eraser",
             ),
         ]
@@ -707,7 +702,7 @@ class PolygonCanvas(CanvasImage):
         if result is None:
             return None
         else:
-            if self.app.data_model.labelling_type == "Brush":
+            if self.app.data_model.labelling_type in ["Brush", "Eraser"]:
                 self.place_poly_point(*result, int(self.app.brush_width))
 
     def mouse_release(self, event) -> None:
@@ -716,7 +711,7 @@ class PolygonCanvas(CanvasImage):
         if result is None:
             return None
         else:
-            if self.app.data_model.labelling_type == "Brush":
+            if self.app.data_model.labelling_type in ["Brush", "Eraser"]:
                 self.finish_poly(event)
 
     def cancel(self, event) -> None:
@@ -813,6 +808,7 @@ class PolygonCanvas(CanvasImage):
 
         current_class = self.app.data_model.current_class
         label_type = self.app.data_model.labelling_type
+        print(label_type)
 
         self.app.data_model.add_label(
             current_class,
@@ -820,9 +816,10 @@ class PolygonCanvas(CanvasImage):
             label_type,
             self.app.brush_width,
         )
-        self.app.treeview._update_treeview_from_labels(
-            self.app.data_model.current_piece.labels
-        )
+        if label_type != "Eraser":
+            self.app.treeview._update_treeview_from_labels(
+                self.app.data_model.current_piece.labels
+            )
         self.current_label_frac_points = []
         self.app.needs_updating = True
 
