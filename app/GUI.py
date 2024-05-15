@@ -111,7 +111,7 @@ class App(ttk.Frame):
         self.event_loop()
 
     # ADD WIDGETS
-    def _init_ttk_theme(self, theme: Literal["light", "dark"] = "light") -> None:
+    def _init_ttk_theme(self, theme: Literal["light", "dark"] = "dark") -> None:
         self.root.tk.call("source", f"{getcwd()}/app/gui_elements/tk_themes/azure.tcl")
         self.root.tk.call("set_theme", theme)
         # needed to stop file dialog font being white (and therefore unreadable)
@@ -316,6 +316,20 @@ class App(ttk.Frame):
         )
         self.slider.set(set_to)
 
+    def classifier_window(self) -> None:
+        window = tk.Toplevel(
+            self,
+        )
+        window.title("Choose Classifier?")
+        combobox = ttk.Combobox(
+            window,
+            values=["DINOv2-S-14", "DINO-S-8", "RandomForest"],
+        )
+        combobox.set(self.data_model.selected_model)
+        combobox.grid(row=0, column=0)
+        done = ttk.Button(window, text="Done")
+        done.grid(row=1, column=0, sticky="NSE")
+
     # LOGIC
 
     def load_image_from_filepaths(self, image_paths: Tuple[str, ...]) -> None:
@@ -469,7 +483,7 @@ class MenuBar(tk.Menu):
         self.add_cascade(label="Data", menu=data_menu)
 
         classifier_name_fn_pairs: List[Tuple[str, Callable]] = [
-            ("New Classifier", _foo),
+            ("New Classifier", self.app.classifier_window),
             ("Train Classifier", _foo),
             ("Apply Classifier", _foo),
             ("Load Classifier", _foo),

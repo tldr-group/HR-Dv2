@@ -21,7 +21,7 @@ from GUI import App, DataModel
 
 if __name__ == "__main__":
     root = tk.Tk()
-    root.title("SAMBA")
+    root.title("Deep Feature Segmentation")
 
     data_model = DataModel()
     app = App(root, data_model)

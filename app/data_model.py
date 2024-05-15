@@ -3,12 +3,8 @@
 # %% IMPORTS
 import numpy as np
 from PIL import Image, ImageDraw
-from skimage.measure import find_contours, approximate_polygon
 from multiprocessing import Process, Queue, set_start_method
 from sklearn.linear_model import LogisticRegression
-
-from os import getcwd
-from time import sleep
 
 
 from tifffile import imread, imwrite
@@ -241,7 +237,11 @@ class DataModel:
 
         self.worker: Process
 
-        self.get_net("dinov2_vits14_reg")
+        self.selected_model: Literal["DINOv2-S-14", "DINO-S-8", "RandomForest"] = (
+            "DINOv2-S-14"
+        )
+
+        # self.get_net("dinov2_vits14_reg")
         # our classifier's queues are swapped relative to data model
 
     def get_net(self, model_name: str = "dinov2_vits14_reg", stride: int = 4):
