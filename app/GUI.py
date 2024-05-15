@@ -301,7 +301,7 @@ class App(ttk.Frame):
         def slider_fn(x):
             x = int(float(x))
             img = self.data_model.set_current_img(x)
-            self.canvas.set_current_image(img)
+            self.canvas.set_current_image(img, new=True)
 
         self.slider = ttk.Scale(self, from_=0, to=to, command=slider_fn)
         if to == 0:  # early return

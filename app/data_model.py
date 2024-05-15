@@ -273,14 +273,14 @@ class DataModel:
             np_array = np.expand_dims(np_array, -1)
             np_array = np.tile(np_array, new_shape)
             pil_image = Image.fromarray(np_array)
-            pil_image = resize_longest_side(pil_image, 322)
+            pil_image = resize_longest_side(pil_image, 518)  # 322
             np_array = np.array(pil_image)
             pil_image = pil_image.convert("RGBA")
         else:  # done s.t data channel is 1-d. fix later
             pil_image = Image.open(filepath).convert("RGB")
             np_array = np.asarray(pil_image)
             np_array = (np_array / np.amax(np_array)) * 255
-            pil_image = resize_longest_side(pil_image, 322)
+            pil_image = resize_longest_side(pil_image, 518)
             np_array = np.array(pil_image)
             pil_image = pil_image.convert("RGBA")
 
@@ -365,7 +365,6 @@ class DataModel:
             feats = piece.features
             h, w, c = feats.shape
             flat_features = feats.reshape((h * w, c))
-            flat_feats_norm = normalise_pca(flat_features)
 
             flat_classes = model.predict(flat_features)
             piece.seg_arr = flat_classes.reshape((h, w))

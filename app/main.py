@@ -4,10 +4,12 @@ import tkinter as tk
 from GUI import App, DataModel
 
 # TODO:
+
+# abstract into two classes: featuriser and classifier. featuriser produces features, classifier predicts probs
+# random forest classifier: port featuriser back over from samba-web
+# model choice in app / new classifier
 # save classifier
-# model choice in app / new classifier #
-# random forest classifier
-# abstract back into threaded process class
+
 
 # Experiment:
 # load a few examples
