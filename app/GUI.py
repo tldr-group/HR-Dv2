@@ -112,9 +112,7 @@ class App(ttk.Frame):
 
     # ADD WIDGETS
     def _init_ttk_theme(self, theme: Literal["light", "dark"] = "light") -> None:
-        self.root.tk.call(
-            "source", f"{getcwd()}/samba/gui_elements/tk_themes/azure.tcl"
-        )
+        self.root.tk.call("source", f"{getcwd()}/app/gui_elements/tk_themes/azure.tcl")
         self.root.tk.call("set_theme", theme)
         # needed to stop file dialog font being white (and therefore unreadable)
         self.root.option_add("*TkFDialog*foreground", "black")
@@ -172,7 +170,7 @@ class App(ttk.Frame):
         # First row: different label/brush types
         label_type_frame = tk.Frame(labels_frame)
         # in format icon path, fn, tooltip text
-        dir_prefix = f"{getcwd()}/samba/gui_elements/icons/"
+        dir_prefix = f"{getcwd()}/app/gui_elements/icons/"
         label_type_list: List[Tuple[str, Callable, str]] = [
             (
                 f"{dir_prefix}smart.png",
@@ -429,6 +427,8 @@ class App(ttk.Frame):
         if data_header == "segmentation":
             self._load_segmentations(data)
             self.data_model._finish_worker_thread()
+        elif data_header == "test":
+            pass
         else:
             raise Exception("Queue return type not implemented.")
 

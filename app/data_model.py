@@ -5,6 +5,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from skimage.measure import find_contours, approximate_polygon
 from multiprocessing import Process, Queue, set_start_method
+from sklearn.linear_model import LogisticRegression
 
 from os import getcwd
 from time import sleep
@@ -15,6 +16,7 @@ from tifffile import imread, imwrite
 from dataclasses import dataclass
 from typing import TypeAlias, List, Tuple, Literal, cast
 
+import torch
 import hr_dv2.transform as tr
 from hr_dv2.utils import *
 from hr_dv2 import HighResDV2
@@ -95,6 +97,34 @@ def create_label_mask(
     return mask
 
 
+def resize_longest_side(img: Image.Image, l: int, patch_size: int = 14) -> Image.Image:
+    oldh, oldw = img.height, img.width
+    scale = l * 1.0 / max(oldh, oldw)
+    newh, neww = oldh * scale, oldw * scale
+    neww = int(neww + 0.5)
+    newh = int(newh + 0.5)
+    neww = neww - (neww % patch_size)
+    newh = newh - (newh % patch_size)
+
+    return img.resize((neww, newh))
+
+
+def get_training_data(
+    feature_stack: np.ndarray, labels: np.ndarray, method="cpu"
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Given $feature_stack and $labels, flatten both and reshape accordingly. Add a class offset if using XGB gpu."""
+    h, w, feat = feature_stack.shape
+    flat_labels = labels.reshape((h * w))
+    flat_features = feature_stack.reshape((h * w, feat))
+    labelled_mask = np.nonzero(flat_labels)
+
+    fit_data = flat_features[labelled_mask[0], :]
+    target_data = flat_labels[labelled_mask[0]]
+    if method == "gpu":
+        target_data -= 1
+    return fit_data, target_data
+
+
 # %% CLASSES
 @dataclass
 class Label:
@@ -125,8 +155,8 @@ class Piece:
     def __post_init__(self) -> None:
         """Set these here because dataclasses don't like mutable objects being assigned in __init__."""
         shape: Tuple[int, ...] = self.arr.shape[:-1]
-        self.h: int = self.img.height
-        self.w: int = self.img.width
+        self.h: int = shape[0]
+        self.w: int = shape[1]
 
         # integer arr where 0 = not labelled and N > 0 indicates a label for class N at that pixel
         self.labels_arr: np.ndarray = np.zeros(shape, dtype=np.uint8)
@@ -136,7 +166,7 @@ class Piece:
         # boolean arr where 1 = show this pixel in the overlay and 0 means hide. Used for hiding/showing labels later.
         self.label_alpha_mask = np.ones_like(self.seg_arr, dtype=bool)
 
-        self.sam_encoding = np.zeros((64, 64, 256))
+        self.features = np.zeros((self.h, self.w, 384))
 
     def _label_to_mask_arr(
         self,
@@ -204,7 +234,7 @@ class DataModel:
 
         self.worker: Process
 
-        # self.get_net()
+        self.get_net()
         # our classifier's queues are swapped relative to data model
 
     def get_net(self, model_name: str = "dinov2_vits14_reg", stride: int = 4):
@@ -233,13 +263,16 @@ class DataModel:
             new_shape = [1 for i in np_array.shape] + [3]
             np_array = np.expand_dims(np_array, -1)
             np_array = np.tile(np_array, new_shape)
-            pil_image = Image.fromarray(np_array).convert("RGBA")
+            pil_image = Image.fromarray(np_array)
+            pil_image = resize_longest_side(pil_image, 320)
+            np_array = np.array(pil_image)
+            pil_image = pil_image.convert("RGBA")
         else:  # done s.t data channel is 1-d. fix later
-            pil_image = Image.open(filepath)
-            # there seems to be a fundamental differnce between going from L -> RGBA compared to RGB -> RGBA
-            # in that the latter means my data won't show. Unclear as to why that is
+            pil_image = Image.open(filepath).convert("RGB")
             np_array = np.asarray(pil_image)
             np_array = (np_array / np.amax(np_array)) * 255
+            pil_image = resize_longest_side(pil_image, 320)
+            np_array = np.array(pil_image)
             pil_image = pil_image.convert("RGBA")
 
         new_piece: Piece = Piece(np_array, pil_image, [])
@@ -247,12 +280,19 @@ class DataModel:
         self.current_piece = new_piece
 
         # for new image, get sam encoding and store
-        # self._get_features(pil_image)
+        self._get_features(new_piece)
 
         return pil_image
 
-    def _get_features(self, pil_img: Image.Image) -> None:
-        rgb_arr = np.array(pil_img)
+    def _get_features(self, piece: Piece) -> None:
+        np_array = piece.arr
+        rgb_pil_img = Image.fromarray(np_array)
+        tensor: torch.Tensor = tr.to_norm_tensor(rgb_pil_img)
+        tensor = tensor.cuda()
+        feats = self.net.forward_sequential(tensor)
+        feats_np = tr.to_numpy(feats)
+        piece.features = feats_np.transpose((1, 2, 0))
+
         # self.sam_predictor.set_image(rgb_arr)
         # if self.current_piece is not None:
         #    self.current_piece.sam_encoding = self.sam_predictor.features
@@ -286,6 +326,22 @@ class DataModel:
         """Start a thread training & applying the Random Forest classifier."""
         imgs = [piece.arr for piece in self.gallery]
         labels = [piece.labels_arr for piece in self.gallery]
+        feats = [piece.features for piece in self.gallery]
+
+        fit_data, target_data = get_training_data(feats[0], labels[0])
+        print(fit_data.shape)
+
+        model = LogisticRegression("l2")
+        model.fit(fit_data, target_data)
+        print("done")
+
+        h, w, c = feats[0].shape
+        flat_features = feats[0].reshape((h * w, c))
+
+        flat_classes = model.predict(flat_features)
+        self.gallery[0].seg_arr = flat_classes.reshape((h, w))
+        self.gallery[0].segmented = True
+        self.send_queue.put("test")
         # self.classifier.get_training_data(imgs, labels, DEAFAULT_FEATURES)
         # self.worker = Process(target=self.classifier.train, args=())
         # self.worker.start()
