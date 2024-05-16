@@ -7,6 +7,8 @@ from torch.nn.functional import interpolate
 import hr_dv2.transform as tr
 from hr_dv2.utils import *
 from hr_dv2 import HighResDV2
+from hr_dv2.segment import default_crf_params, _get_crf
+from pydensecrf.utils import unary_from_softmax
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
@@ -34,8 +36,9 @@ class Model:
         self.recv_queue = recv_queue
 
         self.classifier: LogisticRegression | RandomForestClassifier = (
-            LogisticRegression("l2", n_jobs=12, max_iter=1000, warm_start=True)
+            LogisticRegression("l2", n_jobs=12, max_iter=1000, warm_start=False)
         )
+        self.do_crf: bool = True
 
     def get_features(
         self, images: list[Image.Image], inds: list[int], send: bool = True
@@ -78,20 +81,38 @@ class Model:
             self.send_queue.put({"train_complete": "_"})
 
     def segment(
-        self, features: list[np.ndarray], inds: list[int], send: bool = True
+        self,
+        features: list[np.ndarray],
+        imgs: list[Image.Image],
+        inds: list[int],
+        send: bool = True,
     ) -> list[np.ndarray]:
         segmentations: list[np.ndarray] = []
         for feat, i in zip(features, inds):
             h, w, c = feat.shape
             flat_features = feat.reshape((h * w, c))
             flat_probs = self.classifier.predict_proba(flat_features)
-            flat_preds = np.argmax(flat_probs, axis=-1).astype(np.uint8) + 1
-            seg = flat_preds.reshape((h, w))
+
+            seg: np.ndarray
+            if self.do_crf:
+                seg = self.crf(imgs[i], flat_probs)
+            else:
+                flat_preds = np.argmax(flat_probs, axis=-1).astype(np.uint8) + 1
+                seg = flat_preds.reshape((h, w))
             if send:
                 self.send_queue.put({f"segmentation_{i}": [seg]})
             segmentations.append(seg)
-
         return segmentations
+
+    def crf(self, pil_img: Image.Image, probs: np.ndarray) -> np.ndarray:
+        img_arr = np.array(pil_img)
+        h, w = pil_img.height, pil_img.width
+        unary = unary_from_softmax(probs).T
+        d = _get_crf(img_arr, probs.shape[-1], unary, default_crf_params)
+        Q = d.inference(default_crf_params.n_infer)
+        crf_seg = np.argmax(Q, axis=0) + 1
+        crf_seg = crf_seg.reshape((h, w))
+        return crf_seg
 
 
 class DeepFeaturesModel(Model):
@@ -120,7 +141,7 @@ class WekaFeaturesModel(Model):
     def __init__(self, send_queue: Queue, recv_queue: Queue) -> None:
         super().__init__(send_queue, recv_queue)
         self.classifier = RandomForestClassifier(
-            n_estimators=200, max_features=2, max_depth=10, n_jobs=12, warm_start=True
+            n_estimators=200, max_features=2, max_depth=10, n_jobs=12, warm_start=False
         )
 
     def img_to_features(self, img: Image.Image) -> np.ndarray:

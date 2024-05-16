@@ -317,6 +317,11 @@ class App(ttk.Frame):
         self.slider.set(set_to)
 
     def classifier_window(self) -> None:
+
+        def on_click():
+            self.data_model.get_model(combobox.get())
+            window.destroy()
+
         window = tk.Toplevel(
             self,
         )
@@ -327,7 +332,7 @@ class App(ttk.Frame):
         )
         combobox.set(self.data_model.selected_model)
         combobox.grid(row=0, column=0)
-        done = ttk.Button(window, text="Done")
+        done = ttk.Button(window, text="Done", command=on_click)
         done.grid(row=1, column=0, sticky="NSE")
 
     # LOGIC

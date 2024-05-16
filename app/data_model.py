@@ -238,10 +238,16 @@ class DataModel:
             "DINOv2-S-14"
         )
 
+        self.get_model(self.selected_model)
+
+    def get_model(self, model_name: str) -> None:
         # our classifier's queues are swapped relative to data model
         self.model = get_featuriser_classifier(
-            self.selected_model, self.recv_queue, self.send_queue
+            model_name, self.recv_queue, self.send_queue
         )
+        if model_name != self.selected_model:
+            self.selected_model = model_name  # type: ignore
+            self.get_features()
 
     def load_image_from_filepath(self, filepath: str) -> Image.Image:
         """Given a filepath, either: load array then create image or load image then create array (depending on extension)."""
@@ -323,12 +329,13 @@ class DataModel:
 
     def segment(self) -> None:
         feats = [piece.features for piece in self.gallery]
+        imgs = [piece.img.convert("RGB") for piece in self.gallery]
         inds = [i for i in range(len(self.gallery))]
         if self.threaded:
             self.worker = Process(target=self.model.segment, args=(feats, inds, True))
             self.worker.start()
         else:
-            segmentations = self.model.segment(feats, inds, False)
+            segmentations = self.model.segment(feats, imgs, inds, False)
             for i, s in enumerate(segmentations):
                 self.gallery[i].seg_arr = s
                 self.gallery[i].segmented = True
