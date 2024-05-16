@@ -39,11 +39,6 @@ pip install -e .
 
 ```
 
-### PATHS:
-Two possible 'paths'
-1) fuse color matting matrix $\psi = \cos{c_{H}, \sin{c_{H}}, c_{s}, c_{v}, p_{x}, p_{y}}$ with a 5-component PCA of HR-Dv2 features and perform clustering
-2) use attention maps to find foreground objects. cluster only foreground features? 
-
 ### TODO:
 - [x] Rewrite the code to use any transformation (list of partial functions & their inverse) and integrate VE code, storing original Dv2 stride and positional encoding code to re-enable later
 - [x] Break up utils into more meaningful files (plotting, converting *etc.*) and add docstrings
@@ -62,18 +57,19 @@ Two possible 'paths'
 - [-] Profiling: seems like the patch embedding conv2d layer (and maybe its associated linear) is the slowest operation, true for both sequential and single pass
 - [-] Add option to use FeatUp's JBU as feature upscaler. Write a custom torch.NN that mimics the structure, getting the features out but also the attention & passing the features to the JBU.
 - [x] Add option to use different ViTs (like DINO, ViT-16-b, or SAM)
+- [x] Retrieval demonstration as in figure 15
 - [ ] Add option to process batches at same time: do 
-- [ ] Instead of using distances -> crf, do dists -> smax -> crf
-- [ ] Add small hyperparam optimization task (mix of foreground seg, localization and semantic seg across various DS). Also measure memory usage and time.
+- [ ] Sem seg probe eval on ade20k/voc12: following dv2 just use eval, 512x512 resolution, measure mIoU (torchmetrics?) 
+- [ ] Write napari plugin for weakly labelled semantic segmentation - train linear model on features to match labels s.t we just do mat mul to get full segmentation (fast!). Allow loading multiple images/features at once (does this not work becuase we normalise features though?). Problem: napari and dinov2/pytorch not playing nice - getting an nvptx-no-f16-math registered twice. I assume there's some gpu overlap with napari and pytorch that's cuasing an error. Options: 1) fix bug (unlikely) 2) server-client napari/featurising 3) just use tkinter (more work to write from scratch)
+- [ ] Evalutation of semantic segmentation on Pascal VOC12, compare w/ 'Deep spectral Methods ...' 
+- [ ] Add small hyperparam optimization task (mix of foreground seg, localization and semantic seg across various DS).
+- [ ] Evaluation co-segmentation performance on CUBS, comparison to 'Deep ViT Features as Dense Visual Descriptors'
+- [ ] Ablations
+- [ ] Instead of using distances -> crf, try dists -> smax -> crf
 - [ ] Clean up notebooks: comparison should now include comparisons of methods (resize, strided, JBU, ours) and comparisons of different nets for ours (dinov8/16, dv2, vit and deit)
 - [ ] Clean up source code: fix docstrings, remove old methods, rebalance utils vs transform. Can you rewrite the patching better?
 - [ ] Read linked papers/email FeatUp to find their linear probe training setup "linear probes are trained with separate Adam optimizers using a learning rate of .005" i.e a linear layer that maps from C -> n_classes (27 for coco). They train on COCO-Stuff training data, predicting the 27 coarse classes and using cross-entropy loss. They report numbers on validation set. I assume they don't normalise features either
 - [ ] Linear probe eval on COCO-Stuff as in FeatUp (ViT-S16, DINO8)
-- [x] Retrieval demonstration as in figure 15
-- [ ] Evalutation of semantic segmentation on Pascal VOC12, compare w/ 'Deep spectral Methods ...' 
-- [ ] Evaluation co-segmentation performance on CUBS, comparison to 'Deep ViT Features as Dense Visual Descriptors'
-- [ ] Write napari plugin for weakly labelled semantic segmentation - train linear model on features to match labels s.t we just do mat mul to get full segmentation (fast!). Allow loading multiple images/features at once (does this not work becuase we normalise features though?).
-- [ ] Ablations
 
 
 
