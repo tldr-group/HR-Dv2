@@ -336,6 +336,7 @@ class App(ttk.Frame):
         """Given a list of file pahs (i.e from file dialog), ask data model to load them then display last one."""
         for img_path in image_paths:
             temp_img = self.data_model.load_image_from_filepath(img_path)
+        self.data_model.get_features()
         self.canvas.image_available = True
         self.canvas.set_current_image(temp_img, new=True)
 
@@ -433,8 +434,17 @@ class App(ttk.Frame):
     def _map_data_header_to_action(
         self, data_header: str, data: List[np.ndarray]
     ) -> None:
-        if data_header == "segmentation":
-            self._load_segmentations(data)
+        if "features" in data_header:
+            idx = int(data_header.split("_")[-1])
+            self.data_model.gallery[idx].features = data[0]
+            self.data_model._finish_worker_thread()
+        elif "train" in data_header:
+            self.data_model.segment()
+        elif "segmentation" in data_header:
+            idx = int(data_header.split("_")[-1])
+            piece = self.data_model.gallery[idx]
+            piece.seg_arr = data[0]
+            piece.segmented = True
             self.data_model._finish_worker_thread()
         elif data_header == "test":
             pass

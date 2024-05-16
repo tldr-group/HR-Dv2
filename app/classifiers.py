@@ -44,7 +44,7 @@ class Model:
         for img, i in zip(images, inds):
             feats = self.img_to_features(img)
             if send:
-                self.send_queue.put({f"features_{i}": feats})
+                self.send_queue.put({f"features_{i}": [feats]})
             features.append(feats)
         return features
 
@@ -69,6 +69,14 @@ class Model:
                 all_target_data = np.concatenate((all_target_data, target_data), axis=0)
         return all_fit_data, all_target_data
 
+    def train(
+        self, features: list[np.ndarray], labels: list[np.ndarray], send: bool = True
+    ) -> None:
+        fit_data, target_data = self.get_training_data(features, labels)
+        self.classifier.fit(fit_data, target_data)
+        if send:
+            self.send_queue.put({"train_complete": "_"})
+
     def segment(
         self, features: list[np.ndarray], inds: list[int], send: bool = True
     ) -> list[np.ndarray]:
@@ -77,10 +85,10 @@ class Model:
             h, w, c = feat.shape
             flat_features = feat.reshape((h * w, c))
             flat_probs = self.classifier.predict_proba(flat_features)
-            flat_preds = np.argmax(flat_probs, axis=-1).astype(np.uint8)
+            flat_preds = np.argmax(flat_probs, axis=-1).astype(np.uint8) + 1
             seg = flat_preds.reshape((h, w))
             if send:
-                self.send_queue.put({f"segmentation_{i}": seg})
+                self.send_queue.put({f"segmentation_{i}": [seg]})
             segmentations.append(seg)
 
         return segmentations

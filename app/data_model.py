@@ -4,7 +4,6 @@
 import numpy as np
 from PIL import Image, ImageDraw
 from multiprocessing import Process, Queue, set_start_method
-from sklearn.linear_model import LogisticRegression
 
 
 from tifffile import imread, imwrite
@@ -12,11 +11,7 @@ from tifffile import imread, imwrite
 from dataclasses import dataclass
 from typing import TypeAlias, List, Tuple, Literal, cast
 
-import torch
-from torch.nn.functional import interpolate
-import hr_dv2.transform as tr
-from hr_dv2.utils import *
-from hr_dv2 import HighResDV2
+from classifiers import Model, get_featuriser_classifier
 
 set_start_method("spawn", force=True)
 
@@ -232,6 +227,8 @@ class DataModel:
 
         self.current_class: int = 1
 
+        self.threaded = False
+
         self.send_queue: Queue = Queue(maxsize=40)
         self.recv_queue: Queue = Queue(maxsize=40)
 
@@ -241,21 +238,10 @@ class DataModel:
             "DINOv2-S-14"
         )
 
-        # self.get_net("dinov2_vits14_reg")
         # our classifier's queues are swapped relative to data model
-
-    def get_net(self, model_name: str = "dinov2_vits14_reg", stride: int = 4):
-        self.net = HighResDV2(model_name, stride, pca_dim=-1, dtype=16)
-        self.net.cuda()
-        self.net.eval()
-
-        shift_dists = [i for i in range(1, 2)]
-        fwd_shift, inv_shift = tr.get_shift_transforms(shift_dists, "Moore")
-        self.net.set_transforms(fwd_shift, inv_shift)
-
-        # self.net = torch.hub.load("mhamilton723/FeatUp", "dinov2", use_norm=False)
-        # fwd_flip, inv_flip = tr.get_flip_transforms()
-        # fwd, inv = tr.combine_transforms(fwd_shift, fwd_flip, inv_shift, inv_flip)
+        self.model = get_featuriser_classifier(
+            self.selected_model, self.recv_queue, self.send_queue
+        )
 
     def load_image_from_filepath(self, filepath: str) -> Image.Image:
         """Given a filepath, either: load array then create image or load image then create array (depending on extension)."""
@@ -287,35 +273,12 @@ class DataModel:
         new_piece: Piece = Piece(np_array, pil_image, [])
         self.gallery.append(new_piece)
         self.current_piece = new_piece
-
-        # for new image, get sam encoding and store
-        self._get_features(new_piece)
-
         return pil_image
-
-    def _get_features(self, piece: Piece) -> None:
-        np_array = piece.arr
-        rgb_pil_img = Image.fromarray(np_array)
-        tensor: torch.Tensor = tr.to_norm_tensor(rgb_pil_img)
-        tensor = tensor.cuda()
-        # tensor = tensor.unsqueeze(0)
-        feats = self.net.forward_sequential(tensor)
-        feats = interpolate(feats, (rgb_pil_img.height, rgb_pil_img.width))
-        feats_np = tr.to_numpy(feats)
-        piece.features = feats_np.transpose((1, 2, 0))
-
-        # self.sam_predictor.set_image(rgb_arr)
-        # if self.current_piece is not None:
-        #    self.current_piece.sam_encoding = self.sam_predictor.features
-
-    # def _get_features(self, img: )
 
     def set_current_img(self, x: int) -> Image.Image:
         """Given index x (i.e from slider), update attrs and return corresponding PIL image."""
         self.current_piece_idx = x
         self.current_piece = self.gallery[x]
-        # update sam encoding
-        # self.sam_predictor.features = self.current_piece.sam_encoding
         return self.current_piece.img
 
     def _set_current_class(self, class_val: int) -> None:
@@ -334,42 +297,42 @@ class DataModel:
         if self.current_piece is not None:
             self.current_piece.add_label_to_mask(label)
 
-    def train(self):
-        """Start a thread training & applying the Random Forest classifier."""
-        imgs = [piece.arr for piece in self.gallery]
-        labels = [piece.labels_arr for piece in self.gallery]
-        feats = [piece.features for piece in self.gallery]
+    def get_features(self) -> None:
+        imgs = [piece.img for piece in self.gallery]
+        inds = [i for i in range(len(self.gallery))]
+        if self.threaded:
+            self.worker = Process(target=self.model.get_features, args=(imgs, True))
+            self.worker.start()
+        else:
+            features = self.model.get_features(imgs, inds, False)
+            for i, f in enumerate(features):
+                self.gallery[i].features = f
 
-        init = False
-        for i, (label, feat) in enumerate(zip(labels, feats)):
-            if self.gallery[i].labelled == False:
-                continue
+    def train(self) -> None:
+        """Start a thread training & applying classifier."""
+        labels = [piece.labels_arr for piece in self.gallery if piece.labelled]
+        feats = [piece.features for piece in self.gallery if piece.labelled]
 
-            if init == False:
-                fit_data, target_data = get_training_data(feat, label)
-                all_fit_data = fit_data  # normalise_pca(fit_data)
-                all_target_data = target_data
-                init = True
-            else:
-                fit_data, target_data = get_training_data(feat, label)
-                # fit_data = normalise_pca(fit_data)
-
-                all_fit_data = np.concatenate((all_fit_data, fit_data), axis=0)
-                all_target_data = np.concatenate((all_target_data, target_data), axis=0)
-
-        model = LogisticRegression("l2", n_jobs=12, max_iter=1000, warm_start=True)
-        model.fit(all_fit_data, all_target_data)
+        if self.threaded:
+            self.worker = Process(target=self.model.train, args=(feats, labels, True))
+            self.worker.start()
+        else:
+            self.model.train(feats, labels, False)
+            self.segment()
         print("done")
 
-        for piece in self.gallery:
-            feats = piece.features
-            h, w, c = feats.shape
-            flat_features = feats.reshape((h * w, c))
-
-            flat_classes = model.predict(flat_features)
-            piece.seg_arr = flat_classes.reshape((h, w))
-            piece.segmented = True
-        self.send_queue.put("test")
+    def segment(self) -> None:
+        feats = [piece.features for piece in self.gallery]
+        inds = [i for i in range(len(self.gallery))]
+        if self.threaded:
+            self.worker = Process(target=self.model.segment, args=(feats, inds, True))
+            self.worker.start()
+        else:
+            segmentations = self.model.segment(feats, inds, False)
+            for i, s in enumerate(segmentations):
+                self.gallery[i].seg_arr = s
+                self.gallery[i].segmented = True
+            self.recv_queue.put({"test": "_"})
 
     def _finish_worker_thread(self):
         self.worker.terminate()
