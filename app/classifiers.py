@@ -1,6 +1,7 @@
 import numpy as np
 from PIL import Image
 from multiprocessing import Queue
+import pickle
 
 import torch
 from torch.nn.functional import interpolate
@@ -113,6 +114,14 @@ class Model:
         crf_seg = np.argmax(Q, axis=0) + 1
         crf_seg = crf_seg.reshape((h, w))
         return crf_seg
+
+    # I/O
+    def save_model(self, file_obj) -> None:
+        pickle.dump(self.classifier, file_obj)
+
+    def load_model(self, path: str) -> None:
+        with open(path, "rb") as f:
+            self.classifier = pickle.load(f)
 
 
 class DeepFeaturesModel(Model):

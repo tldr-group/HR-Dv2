@@ -70,6 +70,18 @@ def open_file_dialog_return_fps(
     return filepaths
 
 
+def open_file_dialog_return_fp(
+    title: str = "Open",
+    file_type_name: str = "Pickle",
+    file_types_string: str = ".pkl",
+) -> str:
+    """Open file dialog and select n files, returning their file paths then loading them."""
+    filepath: str = fd.askopenfilename(
+        filetypes=[(f"{file_type_name} files:", file_types_string)], title=title
+    )
+    return filepath
+
+
 # %% =================================== MAIN APP ===================================
 class App(ttk.Frame):
     """Parent widget for GUI. Contains event scheduler in listen() method."""
@@ -499,18 +511,16 @@ class MenuBar(tk.Menu):
 
         classifier_name_fn_pairs: List[Tuple[str, Callable]] = [
             ("New Classifier", self.app.classifier_window),
-            ("Train Classifier", _foo),
-            ("Apply Classifier", _foo),
-            ("Load Classifier", _foo),
-            ("Save Classifier", _foo),
-            ("sep", _foo),
-            ("Features", _foo),
+            ("Train Classifier", self.app.data_model.train),
+            ("Apply Classifier", self.app.data_model.segment),
+            ("Load Classifier", self._load_classifier),
+            ("Save Classifier", self._save_classifier),
         ]
         classifier_menu = self._make_dropdown(classifier_name_fn_pairs)
         self.add_cascade(label="Classifier", menu=classifier_menu)
 
         self.add_command(label="Post-Process", command=_foo)  # type: ignore
-        self.add_command(label="Save Segmentation", command=_foo)  # type: ignore
+        self.add_command(label="Save Segmentation", command=self._save_segmentation)  # type: ignore
 
     def _make_dropdown(self, name_fn_pair_list: List[Tuple[str, Callable]]) -> tk.Menu:
         menu = tk.Menu()
@@ -529,6 +539,29 @@ class MenuBar(tk.Menu):
             pass
         else:
             self.app.load_image_from_filepaths(file_paths)
+
+    def _load_classifier(self) -> None:
+        file_path = open_file_dialog_return_fp(title="Load Classifier")
+        if file_path == "":
+            return
+        else:
+            self.app.data_model.model.load_model(file_path)
+
+    def _save_classifier(self) -> None:
+        f = fd.asksaveasfile(mode="wb", defaultextension=".pkl")
+        if f is None:
+            return
+        else:
+            self.app.data_model.model.save_model(f)
+            f.close()
+
+    def _save_segmentation(self) -> None:
+        f = fd.asksaveasfile(mode="wb", defaultextension=".tiff")
+        if f is None:
+            return
+        else:
+            self.app.data_model.save_seg(f)
+            f.close()
 
 
 class ScrollableTreeview(tk.Frame):

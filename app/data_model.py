@@ -4,7 +4,7 @@
 import numpy as np
 from PIL import Image, ImageDraw
 from multiprocessing import Process, Queue, set_start_method
-
+from math import floor
 
 from tifffile import imread, imwrite
 
@@ -280,6 +280,14 @@ class DataModel:
         self.gallery.append(new_piece)
         self.current_piece = new_piece
         return pil_image
+
+    def save_seg(self, file_obj) -> None:
+        seg_arr = self.current_piece.seg_arr.astype(np.uint8)
+        max_class = np.amax(seg_arr)
+        delta = floor(255 / (max_class))
+        rescaled = ((seg_arr * delta)).astype(np.uint8)
+
+        imwrite(file_obj.name, rescaled, photometric="minisblack")
 
     def set_current_img(self, x: int) -> Image.Image:
         """Given index x (i.e from slider), update attrs and return corresponding PIL image."""
