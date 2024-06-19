@@ -184,3 +184,4 @@ cython_debug/
 *subsets*
 *fig_data*
 *out*
+*.zip
