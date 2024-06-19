@@ -143,6 +143,7 @@ def visualise_batch(
     y_pred: list[torch.Tensor],
     title: str,
     save_dir: str,
+    cmap: np.ndarray,
 ) -> None:
     n = len(x)
     fig, axs = plt.subplots(nrows=3, ncols=n)
@@ -263,7 +264,7 @@ if __name__ == "__main__":
                 last10y,
                 last10y_pred,
                 f"ours {i}",
-                f"{CWD}/experiments/semantic_seg/voc_out/jbu/{i}.png",
+                f"{CWD}/experiments/semantic_seg/voc_out/baz/{i}.png",
             )
             print(f"[{i} / {len(dataset)}]: {jac.compute()}")
 
