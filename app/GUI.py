@@ -16,7 +16,7 @@ from data_model import DataModel, LabelType, Label
 
 
 # this is a silly/funny/genius hack from stackoverflow to use the tooltips from IDLE (as tkinter doesn't have its own)
-from idlelib.tooltip import Hovertip
+#from idlelib.tooltip import Hovertip
 from PIL import Image, ImageTk
 from gui_elements.zoom_scroll_canvas import CanvasImage
 

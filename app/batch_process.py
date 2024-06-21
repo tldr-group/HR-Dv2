@@ -4,6 +4,8 @@ from tifffile import imread, imwrite
 from PIL import Image
 import numpy as np
 
+np.random.seed(1001)
+
 import torch
 from torchmetrics.classification.jaccard import JaccardIndex
 from torch.nn.functional import interpolate
@@ -35,19 +37,22 @@ L = 518
 
 do_dino = False
 if do_dino:
-    model_name = "DINOv2-S-14"
-    model_path = "/home/ronan/Documents/uni_work/phd/hr_dv2/experiments/weakly_supervised/models/dinov2.pkl"
-    out_folder = "dv2_out"
+    model_name = "DINO-S-8" #DINO-S-8 DINOv2-S-14
+    model_path = "/home/ronan/HR-Dv2/experiments/weakly_supervised/models/d_real.pkl"
+    out_folder = "preds/d_out_no_crf"
 else:
     model_name = "random_forest"
-    model_path = "/home/ronan/Documents/uni_work/phd/hr_dv2/experiments/weakly_supervised/models/rf.pkl"
-    out_folder = "rf_out"
+    model_path = "/home/ronan/HR-Dv2/experiments/weakly_supervised/models/rf_real.pkl"
+    out_folder = "preds/rf_out"
+
 
 model = get_featuriser_classifier(model_name, Queue(2), Queue(2))
 model.load_model(model_path)
 
+model.do_crf = True
+
 jac = JaccardIndex(num_classes=3, task="multiclass")
-expr_folder = "/home/ronan/Documents/uni_work/phd/hr_dv2/experiments/weakly_supervised"
+expr_folder = "/home/ronan/HR-Dv2/experiments/weakly_supervised"
 
 for i, f in enumerate(listdir(join(expr_folder, "data"))):
     print(f"{i}/150")
@@ -77,8 +82,18 @@ print(f"{jac.compute()}")
 
 
 """
-(inc. bg as a class)
+(inc. bg as a class) with old classifiers
 dv2 mIoU: 0.7915431261062622
 weka mIoU: 0.3780558109283447
+
+
+(inc. bg as a class) with new classifiers
+dv2 mIoU: 0.8129842281341553
+dv mIoU: 0.8047828674316406
+weka mIoU: 0.3105025291442871
+
+dv2 mIoU (no crf): 0.7758936882019043
+dv mIoU (no crf): 0.7737023234367371
+weka mIoU (no crf): 0.3527997136116028
 
 """
