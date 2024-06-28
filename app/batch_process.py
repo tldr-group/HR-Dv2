@@ -14,6 +14,8 @@ from multiprocessing import Queue
 from classifiers import DeepFeaturesModel, WekaFeaturesModel, get_featuriser_classifier
 from data_model import resize_longest_side
 
+# TODO: add poisson noise=shotnoise (and also gaussian=thermal?) and show 0-shot perf as noise increases?
+
 
 mapping = [(255, 0), (170, 1), (85, 2)]
 
