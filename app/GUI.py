@@ -159,6 +159,7 @@ class App(ttk.Frame):
         self._init_overlays_frame()
         self._init_treeview()
         self._init_slider()
+        self._init_checkbox()
 
     def _init_labels_frame(self) -> None:
         labels_frame = ttk.LabelFrame(self, text="Labels")
@@ -327,6 +328,18 @@ class App(ttk.Frame):
             pady=(0, PAD),
         )
         self.slider.set(set_to)
+    
+    def _init_checkbox(self) -> None:
+        var = tk.BooleanVar(self, True)
+        def btn_cmd():
+            self.data_model.model.do_crf = var.get()
+            print(self.data_model.model.do_crf)
+        self.checkbtn = ttk.Checkbutton(self, command=btn_cmd, text="CRF?", variable=var)
+        self.checkbtn.grid(row=MENU_BAR_ROW + CANVAS_H_GRID + 1,
+            column=2,
+            sticky="ew",
+            padx=(3 * PAD, 3 * PAD),
+            pady=(0, PAD),)
 
     def classifier_window(self) -> None:
 
