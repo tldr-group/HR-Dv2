@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 from PIL import Image, ImageTk
 from typing import Callable, Any, Literal, List
-from idlelib.tooltip import Hovertip
+#from idlelib.tooltip import Hovertip
 
 
 class HighlightButton(tk.Frame):
@@ -30,7 +30,7 @@ class HighlightButton(tk.Frame):
     ) -> None:
         btn = ttk.Button(self, image=photoimage, width=1, command=lambda: self._toggle_btn_and_call_fn(self, command))  # type: ignore
         btn.grid(row=0, column=0, padx=(3, 3), pady=(3, 3))
-        btn_tooltip = Hovertip(self, text=tooltip_txt)
+        #btn_tooltip = Hovertip(self, text=tooltip_txt)
 
     def _toggle_btn_and_call_fn(
         self,
