@@ -141,7 +141,10 @@ class DeepFeaturesModel(Model):
 
         shift_dists = [i for i in range(1, 2)]
         fwd_shift, inv_shift = tr.get_shift_transforms(shift_dists, "Moore")
-        self.net.set_transforms(fwd_shift, inv_shift)
+        fwd_flip, inv_flip = tr.get_flip_transforms()
+        # fwd, inv = tr.combine_transforms(fwd_shift, fwd_flip, inv_shift, inv_flip)
+        fwd, inv = fwd_shift, inv_shift
+        self.net.set_transforms(fwd, inv)
 
     def img_to_features(self, img: Image.Image) -> np.ndarray:
         rgb_pil_img = img.convert("RGB")

@@ -265,7 +265,7 @@ class DataModel:
             np_array = np.expand_dims(np_array, -1)
             np_array = np.tile(np_array, new_shape)
             pil_image = Image.fromarray(np_array)
-            pil_image = resize_longest_side(pil_image, 518)  # 322
+            pil_image = resize_longest_side(pil_image, 518)  # 322 \518
             np_array = np.array(pil_image)
             pil_image = pil_image.convert("RGBA")
         else:  # done s.t data channel is 1-d. fix later
