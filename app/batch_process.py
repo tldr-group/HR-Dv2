@@ -14,6 +14,8 @@ from multiprocessing import Queue
 from classifiers import DeepFeaturesModel, WekaFeaturesModel, get_featuriser_classifier
 from data_model import resize_longest_side
 
+from skimage.util import random_noise
+
 # TODO: add poisson noise=shotnoise (and also gaussian=thermal?) and show 0-shot perf as noise increases?
 
 
@@ -30,9 +32,18 @@ def tiff_to_labels(tiff: np.ndarray, mapping: list[tuple[int, int]]) -> np.ndarr
 def save_seg(seg: np.ndarray, fname: str):
     rescaled = seg
     for i in range(3):
-        rescaled = np.where(rescaled == i, mapping[i][0], rescaled)
+        rescaled = np.where(rescaled == i, default_mapping[i][0], rescaled)
 
     imwrite(fname, rescaled.astype(np.uint8), photometric="minisblack")
+
+def add_noise(input_arr: np.ndarray, possion: bool=True, gauss_level: float=0) -> np.ndarray:
+    result = input_arr / 255.0
+    if possion:
+        result = random_noise(result, mode='poisson')
+    if gauss_level != 0:
+        result = random_noise(result, mode='gaussian', var=gauss_level)
+    result = ((result)  * 255)
+    return result
 
 
 L = 518
@@ -49,7 +60,7 @@ else:
 
 
 
-def main_loop(model_path: str, model_name: str, prefix: str, mapping: list[tuple[int, int]], save: bool=False ) -> None:
+def main_loop(model_path: str, model_name: str, prefix: str, mapping: list[tuple[int, int]], save: bool=False, noise_params: tuple[bool, float]=(False, 0)) -> None:
     model = get_featuriser_classifier(model_name, Queue(2), Queue(2))
     model.load_model(model_path)
 
@@ -67,9 +78,14 @@ def main_loop(model_path: str, model_name: str, prefix: str, mapping: list[tuple
         out_path = join(expr_folder, "masks", f"{f[:-4]}.tif_segmentation.tifnomalized.tif")
 
         inp_data = imread(inp_path)
-        out_data = tiff_to_labels(imread(out_path), mapping)
+        if noise_params != (False, 0):
+            inp_data = add_noise(inp_data, noise_params[0], noise_params[1])
+        out_data = tiff_to_labels(imread(out_path), default_mapping)
 
         inp_img = Image.fromarray(inp_data).convert("RGB")
+        if save:
+            inp_img.save(f'foo_{noise_params[1]}.png')
+
         inp_img = resize_longest_side(inp_img, L)
         features = model.img_to_features(inp_img)
         out_segs = model.segment([features], [inp_img], [0], False)
@@ -83,7 +99,8 @@ def main_loop(model_path: str, model_name: str, prefix: str, mapping: list[tuple
         pred_tensor = torch.tensor(out_seg, dtype=torch.int32).unsqueeze(0)
 
         if save:
-            save_seg(out_seg, join(expr_folder, out_folder, f))
+            save_seg(out_seg, "pred_foo.tiff") #
+            save_seg(out_data, "gt_foo.tiff")
 
         val = jac(pred_tensor, gt_tensor)
         vals.append(val.item())
@@ -91,13 +108,23 @@ def main_loop(model_path: str, model_name: str, prefix: str, mapping: list[tuple
         #jac.update(pred_tensor, gt_tensor)
     print(f"{prefix}: {jac.compute()} +/- {np.std(vals)}")
 
+noise_vals = [0, 0.001, 0.01, 0.1, 0.2]
+noise_params = [(True, n) for n in noise_vals]
 
+for n in noise_params:
+    for models in ["DINOv2-S-14", "random_forest"]:
+        name = "dv2" if models == "DINOv2-S-14" else "rf"
+        model_path = f"/home/ronan/HR-Dv2/experiments/weakly_supervised/models/{name}_real.pkl"
+        main_loop(model_path, models, f"{models}, {n[1]}: ", [(255, 2), (170, 1), (85, 0)], noise_params=n, save=False)
 
+"""
 for n_data in [1, 2, 4, 8, 16]:
     for models in ["DINOv2-S-14", "random_forest"]:
         name = "dv2" if models == "DINOv2-S-14" else "rf"
         model_path = f"/home/ronan/HR-Dv2/experiments/weakly_supervised/models/{n_data}/{name}.pkl"
         main_loop(model_path, models, f"{models}, {n_data}: ", [(255, 2), (170, 1), (85, 0)])
+"""
+        
 
 """
 (inc. bg as a class) with old classifiers

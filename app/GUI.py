@@ -353,7 +353,7 @@ class App(ttk.Frame):
         window.title("Choose Classifier?")
         combobox = ttk.Combobox(
             window,
-            values=["DINOv2-S-14", "DINO-S-8", "RandomForest"],
+            values=["DINOv2-S-14", "DINO-S-8", "FeatUp", "RandomForest"],
         )
         combobox.set(self.data_model.selected_model)
         combobox.grid(row=0, column=0)

@@ -190,3 +190,4 @@ cython_debug/
 *experiments/weakly_supervised/*training_data*
 *tk_themes/
 *micrographs*
+experiments/*.zip

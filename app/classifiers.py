@@ -159,11 +159,32 @@ class WekaFeaturesModel(Model):
         feats = multiscale_advanced_features(arr, DEAFAULT_WEKA_FEATURES)
         return feats
 
+class FeatUp(DeepFeaturesModel):
+    def __init__(self, send_queue: Queue, recv_queue: Queue, model_name: str) -> None:
+        super().__init__(send_queue, recv_queue, model_name)
+
+        self.net = torch.hub.load("mhamilton723/FeatUp", 'dinov2', use_norm=False)
+        self.net.cuda()
+        self.net.eval()
+    
+    def img_to_features(self, img: Image.Image) -> np.ndarray:
+        rgb_pil_img = img.convert("RGB")
+        print('featup')
+        tensor: torch.Tensor = tr.to_norm_tensor(rgb_pil_img)
+        tensor = tensor.cuda()
+        feats = self.net.forward(tensor.unsqueeze(0))
+        feats = interpolate(feats, (rgb_pil_img.height, rgb_pil_img.width))
+        feats_np = tr.to_numpy(feats)
+
+        return feats_np.transpose((1, 2, 0))
+
 
 def get_featuriser_classifier(name: str, send_queue: Queue, recv_queue: Queue) -> Model:
     if name == "DINOv2-S-14":
         return DeepFeaturesModel(send_queue, recv_queue, "dinov2_vits14_reg")
     elif name == "DINO-S-8":
         return DeepFeaturesModel(send_queue, recv_queue, "dino_vits8")
+    elif name == "FeatUp":
+        return FeatUp(send_queue, recv_queue, "dinov2_vits14_reg")
     else:
         return WekaFeaturesModel(send_queue, recv_queue)
