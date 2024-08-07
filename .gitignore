@@ -191,3 +191,4 @@ cython_debug/
 *tk_themes/
 *micrographs*
 experiments/*.zip
+*make_poster_img*

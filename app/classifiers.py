@@ -13,6 +13,7 @@ from pydensecrf.utils import unary_from_softmax
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler
 
 from features import DEAFAULT_WEKA_FEATURES, multiscale_advanced_features
 
@@ -37,7 +38,13 @@ class Model:
         self.recv_queue = recv_queue
 
         self.classifier: LogisticRegression | RandomForestClassifier = (
-            LogisticRegression("l2", n_jobs=12, max_iter=1000, warm_start=False)
+            LogisticRegression(
+                "l2",
+                n_jobs=12,
+                max_iter=1000,
+                warm_start=False,
+                class_weight="balanced",
+            )
         )
         self.do_crf: bool = True
 
@@ -134,7 +141,10 @@ class DeepFeaturesModel(Model):
 
         shift_dists = [i for i in range(1, 2)]
         fwd_shift, inv_shift = tr.get_shift_transforms(shift_dists, "Moore")
-        self.net.set_transforms(fwd_shift, inv_shift)
+        fwd_flip, inv_flip = tr.get_flip_transforms()
+        # fwd, inv = tr.combine_transforms(fwd_shift, fwd_flip, inv_shift, inv_flip)
+        fwd, inv = fwd_shift, inv_shift
+        self.net.set_transforms(fwd, inv)
 
     def img_to_features(self, img: Image.Image) -> np.ndarray:
         rgb_pil_img = img.convert("RGB")
@@ -150,7 +160,12 @@ class WekaFeaturesModel(Model):
     def __init__(self, send_queue: Queue, recv_queue: Queue) -> None:
         super().__init__(send_queue, recv_queue)
         self.classifier = RandomForestClassifier(
-            n_estimators=200, max_features=2, max_depth=10, n_jobs=12, warm_start=False
+            n_estimators=200,
+            max_features=2,
+            max_depth=10,
+            n_jobs=12,
+            warm_start=False,
+            class_weight="balanced",
         )
 
     def img_to_features(self, img: Image.Image) -> np.ndarray:
@@ -159,17 +174,18 @@ class WekaFeaturesModel(Model):
         feats = multiscale_advanced_features(arr, DEAFAULT_WEKA_FEATURES)
         return feats
 
+
 class FeatUp(DeepFeaturesModel):
     def __init__(self, send_queue: Queue, recv_queue: Queue, model_name: str) -> None:
         super().__init__(send_queue, recv_queue, model_name)
 
-        self.net = torch.hub.load("mhamilton723/FeatUp", 'dinov2', use_norm=False)
+        self.net = torch.hub.load("mhamilton723/FeatUp", "dinov2", use_norm=False)
         self.net.cuda()
         self.net.eval()
-    
+
     def img_to_features(self, img: Image.Image) -> np.ndarray:
         rgb_pil_img = img.convert("RGB")
-        print('featup')
+        print("featup")
         tensor: torch.Tensor = tr.to_norm_tensor(rgb_pil_img)
         tensor = tensor.cuda()
         feats = self.net.forward(tensor.unsqueeze(0))
@@ -179,6 +195,39 @@ class FeatUp(DeepFeaturesModel):
         return feats_np.transpose((1, 2, 0))
 
 
+class Hybrid(DeepFeaturesModel):
+
+    def __init__(self, send_queue: Queue, recv_queue: Queue, model_name: str) -> None:
+        super().__init__(send_queue, recv_queue, model_name)
+        """
+        self.classifier = RandomForestClassifier(
+            n_estimators=200,
+            max_features=2,
+            max_depth=10,
+            n_jobs=12,
+            warm_start=False,
+            class_weight="balanced",
+        )
+        """
+
+    def img_to_features(self, img: Image.Image) -> np.ndarray:
+        rgb_pil_img = img.convert("RGB")
+        tensor: torch.Tensor = tr.to_norm_tensor(rgb_pil_img)
+        tensor = tensor.cuda()
+        feats = self.net.forward_sequential(tensor)
+        feats = interpolate(feats, (rgb_pil_img.height, rgb_pil_img.width))
+        deep_feats = tr.to_numpy(feats).transpose((1, 2, 0))
+
+        greyscale = img.convert("L")
+        arr = np.array(greyscale)
+        classical_feats = multiscale_advanced_features(arr, DEAFAULT_WEKA_FEATURES)
+        hybrid_feats = np.concatenate((deep_feats, classical_feats), axis=-1)
+        print(hybrid_feats.shape)
+        print(self.classifier)
+        hybrid_feats = rescale_pca_img(hybrid_feats)
+        return hybrid_feats
+
+
 def get_featuriser_classifier(name: str, send_queue: Queue, recv_queue: Queue) -> Model:
     if name == "DINOv2-S-14":
         return DeepFeaturesModel(send_queue, recv_queue, "dinov2_vits14_reg")
@@ -186,5 +235,12 @@ def get_featuriser_classifier(name: str, send_queue: Queue, recv_queue: Queue) -
         return DeepFeaturesModel(send_queue, recv_queue, "dino_vits8")
     elif name == "FeatUp":
         return FeatUp(send_queue, recv_queue, "dinov2_vits14_reg")
+    elif name == "hybrid":
+        # hybrid seems nice (i.e > deep), and means you don't need crf for high-res,
+        # but either the RF or the weka features makes it brittle/not generalise well
+        # really motivates high-res dv2 features
+        # is the problem the Rf or the weka?
+        # crf really does kill the small phases (i.e organelles)
+        return Hybrid(send_queue, recv_queue, "dinov2_vits14_reg")
     else:
         return WekaFeaturesModel(send_queue, recv_queue)

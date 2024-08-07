@@ -17,7 +17,8 @@ from GUI import App, DataModel
 # train classifer with different models
 # apply to whole dataset, measure mIoU as fn of model/n labelled examples
 
-# add CRF? make classifier use predict proba and take argmax as in random forest
+# TODO: add inv freq weights
+# TODO:
 
 if __name__ == "__main__":
     root = tk.Tk()

@@ -16,7 +16,7 @@ from data_model import DataModel, LabelType, Label
 
 
 # this is a silly/funny/genius hack from stackoverflow to use the tooltips from IDLE (as tkinter doesn't have its own)
-#from idlelib.tooltip import Hovertip
+# from idlelib.tooltip import Hovertip
 from PIL import Image, ImageTk
 from gui_elements.zoom_scroll_canvas import CanvasImage
 
@@ -328,18 +328,24 @@ class App(ttk.Frame):
             pady=(0, PAD),
         )
         self.slider.set(set_to)
-    
+
     def _init_checkbox(self) -> None:
         var = tk.BooleanVar(self, True)
+
         def btn_cmd():
             self.data_model.model.do_crf = var.get()
             print(self.data_model.model.do_crf)
-        self.checkbtn = ttk.Checkbutton(self, command=btn_cmd, text="CRF?", variable=var)
-        self.checkbtn.grid(row=MENU_BAR_ROW + CANVAS_H_GRID + 1,
+
+        self.checkbtn = ttk.Checkbutton(
+            self, command=btn_cmd, text="CRF?", variable=var
+        )
+        self.checkbtn.grid(
+            row=MENU_BAR_ROW + CANVAS_H_GRID + 1,
             column=2,
             sticky="ew",
             padx=(3 * PAD, 3 * PAD),
-            pady=(0, PAD),)
+            pady=(0, PAD),
+        )
 
     def classifier_window(self) -> None:
 
@@ -353,7 +359,7 @@ class App(ttk.Frame):
         window.title("Choose Classifier?")
         combobox = ttk.Combobox(
             window,
-            values=["DINOv2-S-14", "DINO-S-8", "FeatUp", "RandomForest"],
+            values=["DINOv2-S-14", "DINO-S-8", "FeatUp", "hybrid", "RandomForest"],
         )
         combobox.set(self.data_model.selected_model)
         combobox.grid(row=0, column=0)
