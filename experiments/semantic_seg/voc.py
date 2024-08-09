@@ -72,7 +72,7 @@ class ResizeLongestSide:
             tensor = self.to_tensor(x)
         else:
             tensor = pil_to_tensor(x)
-        resized = resize(tensor, target_size, antialias=True)
+        resized = resize(tensor, target_size, antialias=False)
 
         if self.norm:
             resized = self.normalize(resized)
@@ -143,6 +143,7 @@ def visualise_batch(
     y_pred: list[torch.Tensor],
     title: str,
     save_dir: str,
+    cmap,
 ) -> None:
     n = len(x)
     fig, axs = plt.subplots(nrows=3, ncols=n)
@@ -156,7 +157,10 @@ def visualise_batch(
         for j, data in enumerate([x[i], y[i], y_pred[i]]):
             if j == 0:
                 data = to_np(data, True, True)
-            if j > 0:
+            elif j == 1:
+                data = to_np(data, True, False)
+                data = cmap[data]
+            if j > 1:
                 data = to_np(data, True, False)
                 data = cmap[data]
             axs[j, i].imshow(data, interpolation="nearest")

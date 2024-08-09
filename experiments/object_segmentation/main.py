@@ -27,14 +27,14 @@ np.random.seed(2189)
 CWD = os.getcwd()
 DIR = f"{CWD}/experiments/object_segmentation/"
 # DATA_DIR = f"{CWD}/experiments/object_segmentation/datasets/CUB_200_2011"
-# DATA_DIR = f"{CWD}/experiments/object_segmentation/datasets/both/"
+DATA_DIR = f"{CWD}/experiments/object_segmentation/datasets/both/"
 # DATA_DIR = "/media/ronan/T7/phd/HR_DV2/datasets/fg_mix/"
 
 
 PATCH_SIZE = 14
-PLOT_PER = 1
-SAVE_PER = 1
-# N_IMGS = len(os.listdir(IMGS))
+PLOT_PER = 10
+SAVE_PER = 10
+N_IMGS = len(os.listdir(DATA_DIR))
 
 
 def compute_iou(pred, target):
@@ -149,7 +149,9 @@ def loop(
 
         sum_cls = np.sum(attn, axis=0)
         amap, dens = get_attn_density(seg, sum_cls)
-        fg = amap > np.mean(dens)
+        max_attn_dens = np.max(dens)
+        # pick the most attended-to class
+        fg = amap >= max_attn_dens - 0.01
 
         fg_seg = seg * fg
 
