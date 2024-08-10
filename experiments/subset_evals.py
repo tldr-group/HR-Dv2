@@ -96,6 +96,8 @@ if __name__ == "__main__":
 """
 
 vanilla dv2, \rho_a > mean, CUB IoU = 0.7847+/-0.1361
+vanilla dv2, \rho_a > mean, DUTS IoU = 0.6541+/-0.2560
+
 
 
 """
