@@ -151,7 +151,8 @@ def loop(
         amap, dens = get_attn_density(seg, sum_cls)
         max_attn_dens = np.max(dens)
         # pick the most attended-to class
-        fg = amap >= max_attn_dens - 0.01
+        fg = amap > np.mean(dens)
+        # fg = amap >= max_attn_dens - 0.01
 
         fg_seg = seg * fg
 
@@ -177,10 +178,23 @@ def loop(
                     dut_ious.append(iou)
                 else:
                     cub_ious.append(iou)
-            print(
-                f"{i}/{N_IMGS}: CUBS mIoU={np.mean(cub_ious):.4f}+/-{np.std(cub_ious):.4f} \n DUTS mIoU={np.mean(dut_ious):.4f}+/-{np.std(dut_ious):.4f} "
-            )
-            save_result(save_data, new)
+            # print(
+            #    f"{i}/{N_IMGS}: CUBS mIoU={np.mean(cub_ious):.4f}+/-{np.std(cub_ious):.4f} \n DUTS mIoU={np.mean(dut_ious):.4f}+/-{np.std(dut_ious):.4f} "
+            # )
+            if "CUB" in data_dir:
+                print(
+                    f"{i}/{N_IMGS}: CUBS mIoU={np.mean(ious):.4f}+/-{np.std(ious):.4f}"
+                )
+            elif "DUT" in data_dir:
+                print(
+                    f"{i}/{N_IMGS}: DUTs mIoU={np.mean(ious):.4f}+/-{np.std(ious):.4f}"
+                )
+            else:
+                print(
+                    f"{i}/{N_IMGS}: CUBS mIoU={np.mean(cub_ious):.4f}+/-{np.std(cub_ious):.4f} \n DUTS mIoU={np.mean(dut_ious):.4f}+/-{np.std(dut_ious):.4f} "
+                )
+
+            save_result(save_data, save_dir)
 
         if i > n:
             return

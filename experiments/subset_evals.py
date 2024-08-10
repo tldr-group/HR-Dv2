@@ -18,7 +18,11 @@ from object_localization.main import loop as obj_loop
 from object_segmentation.main import loop as seg_loop
 from object_localization.dataset import Dataset
 
+import numpy as np
 from json import load
+
+torch.manual_seed(10)
+np.random.seed(10)
 
 
 def get_net(json: dict) -> nn.Module:
@@ -54,22 +58,44 @@ def object_localize(net: nn.Module, n: int, json: dict) -> None:
     obj_loop(net, dataset, n, json, "experiments/subsets/dino", 1)
 
 
-def object_segment(net: nn.Module, n: int, json: dict) -> None:
+def object_segment_cub(net: nn.Module, n: int, json: dict) -> None:
     seg_loop(
         net,
-        "experiments/object_segmentation/datasets/both/",
+        "experiments/object_segmentation/datasets/CUB_200_2011/",
         n,
         json,
-        "experiments/subsets/dino/",
-        1,
+        "experiments/subsets/dv2/cubs_090824/",
+        5,
     )
 
 
+def object_segment_dut(net: nn.Module, n: int, json: dict) -> None:
+    seg_loop(
+        net,
+        "experiments/object_segmentation/datasets/DUTS-TE/",
+        n,
+        json,
+        "experiments/subsets/dv2/duts_100824/",
+        10,
+    )
+
+
+n_cub = 5993
+n_duts = 3203
 if __name__ == "__main__":
     with open("experiments/exprs.json") as f:
         expr_json = load(f)
 
-    json = expr_json["vanilla_dino"]
+    # json = expr_json["dv2_strict_crf"]
+    json = expr_json["vanilla_dv2"]
     net = get_net(json)
-    object_localize(net, 40, json)
+    object_segment_dut(net, n_duts, json)
     # object_localize(net, 40, json)
+
+
+"""
+
+vanilla dv2, \rho_a > mean, CUB IoU = 0.7847+/-0.1361
+
+
+"""

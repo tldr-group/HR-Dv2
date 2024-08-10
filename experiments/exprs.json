@@ -19,6 +19,26 @@
         "crf_compat_g": 10,
         "crf_compat_b": 10
     },
+    "dv2_strict_crf": {
+        "featurizer": "dinov2_vits14_reg",
+        "stride_l": 4,
+        "pca_dim": 128,
+        "dtype": "float16",
+        "do_flips": true,
+        "do_shifts": true,
+        "max_shift_px": 2,
+        "attn": "o",
+        "sequential": true,
+        "n_clusters": 80,
+        "n_sample_kmeans": 60000,
+        "cutoff_scale": 1.0,
+        "crf_unary": "smax",
+        "crf_sxy_g": 3,
+        "crf_sxy_b": 40,
+        "crf_srgb": 8,
+        "crf_compat_g": 6,
+        "crf_compat_b": 6
+    },
     "vanilla_dino": {
         "featurizer": "dino_vits8",
         "stride_l": 4,
