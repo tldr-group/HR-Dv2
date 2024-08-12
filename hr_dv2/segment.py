@@ -157,7 +157,7 @@ def get_feat_dists_from_centroids(
         new_centroids[:, i] = np.mean(current_centers, axis=0)
     new_feats = features[..., np.newaxis]
     reshaped_centrs = new_centroids[np.newaxis, ...]
-    print(features.shape, new_feats.shape, reshaped_centrs.shape)
+    # print(features.shape, new_feats.shape, reshaped_centrs.shape)
 
     abs_dist = np.abs(new_feats - reshaped_centrs)
     distances = np.sum(abs_dist, axis=1)
@@ -304,7 +304,7 @@ def avg_features_over_labels(
 ) -> list[np.ndarray]:
     out: list[np.ndarray] = []
     n_clusters = np.amax(labels)
-    print(features.shape, labels.shape)
+    # print(features.shape, labels.shape)
     for i in range(n_clusters):
         mask = np.where(labels == i, 1, 0).astype(np.bool_)
         mask = np.expand_dims(mask, 0)

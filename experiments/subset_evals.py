@@ -55,7 +55,7 @@ def object_localize(net: nn.Module, n: int, json: dict) -> None:
         tr.to_norm_tensor,
         "experiments/object_localization/",
     )
-    obj_loop(net, dataset, n, json, "experiments/subsets/dino", 1)
+    obj_loop(net, dataset, n, json, "experiments/subsets/dv2/voc07_120824", 20)
 
 
 def object_segment_cub(net: nn.Module, n: int, json: dict) -> None:
@@ -82,6 +82,7 @@ def object_segment_dut(net: nn.Module, n: int, json: dict) -> None:
 
 n_cub = 5993
 n_duts = 3203
+n_voc7 = 10000
 if __name__ == "__main__":
     with open("experiments/exprs.json") as f:
         expr_json = load(f)
@@ -89,7 +90,8 @@ if __name__ == "__main__":
     # json = expr_json["dv2_strict_crf"]
     json = expr_json["vanilla_dv2"]
     net = get_net(json)
-    object_segment_dut(net, n_duts, json)
+    # object_segment_dut(net, n_duts, json)
+    object_localize(net, n_duts, json)
     # object_localize(net, 40, json)
 
 
@@ -98,6 +100,8 @@ if __name__ == "__main__":
 vanilla dv2, \rho_a > mean, CUB IoU = 0.7847+/-0.1361
 vanilla dv2, \rho_a > mean, DUTS IoU = 0.6541+/-0.2560
 
-
+VOC07 340 good example
+it might be worth just doing multi with every class except min(attention_density) one,
+maybe limiting n boxes to 5 for fair comparison to MOST?
 
 """

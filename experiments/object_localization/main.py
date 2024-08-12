@@ -100,6 +100,7 @@ def plot_results(
         ax.set_axis_off()
     plt.tight_layout()
     plt.savefig(f"{save_dir}/{idx}.png")
+    plt.close(fig)
 
 
 def save_results(
@@ -222,8 +223,6 @@ def loop(
         corloc, matches, ious = get_corloc(gt_bbxs, pred_bboxes)
         corlocs.append(corloc)
         n_boxes.append(n_pred_boxes)
-
-        print(pred_bboxes)
 
         try:
             if img_idx % print_per == 0:
