@@ -47,7 +47,7 @@ def get_net(json: dict) -> nn.Module:
     return net
 
 
-def object_localize(net: nn.Module, n: int, json: dict) -> None:
+def object_localize(net: nn.Module, n: int, json: dict, single: bool = False) -> None:
     dataset = Dataset(
         "VOC07",
         "test",
@@ -55,7 +55,7 @@ def object_localize(net: nn.Module, n: int, json: dict) -> None:
         tr.to_norm_tensor,
         "experiments/object_localization/",
     )
-    obj_loop(net, dataset, n, json, "experiments/subsets/dv2/voc07_120824", 20)
+    obj_loop(net, dataset, n, json, "experiments/subsets/dv2/voc07s_220824", 20, single)
 
 
 def object_segment_cub(net: nn.Module, n: int, json: dict) -> None:
@@ -75,7 +75,7 @@ def object_segment_dut(net: nn.Module, n: int, json: dict) -> None:
         "experiments/object_segmentation/datasets/DUTS-TE/",
         n,
         json,
-        "experiments/subsets/dv2/duts_100824/",
+        "experiments/subsets/dv2/duts_190824/",
         10,
     )
 
@@ -83,6 +83,7 @@ def object_segment_dut(net: nn.Module, n: int, json: dict) -> None:
 n_cub = 5993
 n_duts = 3203
 n_voc7 = 10000
+n_voc12 = 5823
 if __name__ == "__main__":
     with open("experiments/exprs.json") as f:
         expr_json = load(f)
@@ -91,7 +92,7 @@ if __name__ == "__main__":
     json = expr_json["vanilla_dv2"]
     net = get_net(json)
     # object_segment_dut(net, n_duts, json)
-    object_localize(net, n_duts, json)
+    object_localize(net, n_voc7, json, True)
     # object_localize(net, 40, json)
 
 
@@ -103,5 +104,9 @@ vanilla dv2, \rho_a > mean, DUTS IoU = 0.6541+/-0.2560
 VOC07 340 good example
 it might be worth just doing multi with every class except min(attention_density) one,
 maybe limiting n boxes to 5 for fair comparison to MOST?
+
+vanilla dv2, \rho_a > mean, VOC07 CorLoc = 0.716 w/ 3.49 boxes
+3900 / 5823: CorLoc=0.7246 with 3.3826 boxes
+
 
 """

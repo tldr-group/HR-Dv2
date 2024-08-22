@@ -158,6 +158,7 @@ def loop(
     json: dict,
     save_dir: str,
     print_per: int = 1,
+    single: bool = False,
 ) -> None:
     corlocs = []
     n_boxes = []
@@ -215,8 +216,11 @@ def loop(
 
         largest_connected = largest_connected_component(fg)
         superbox = np.array(get_bbox(largest_connected, (ox, oy)))
-        pred_bboxes = multi_class_bboxes(fg_seg, (ox, oy))
-        pred_bboxes = deduplicate_superbox(pred_bboxes, superbox)
+        if single is False:
+            pred_bboxes = multi_class_bboxes(fg_seg, (ox, oy))
+            pred_bboxes = deduplicate_superbox(pred_bboxes, superbox)
+        else:
+            pred_bboxes = np.array([superbox])
         n_pred_boxes = pred_bboxes.shape[0]
         img = img.cpu()
 

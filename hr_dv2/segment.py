@@ -160,7 +160,7 @@ def get_feat_dists_from_centroids(
     # print(features.shape, new_feats.shape, reshaped_centrs.shape)
 
     abs_dist = np.abs(new_feats - reshaped_centrs)
-    distances = np.sum(abs_dist, axis=1)
+    distances = np.sum(abs_dist, axis=1)  # / np.max(abs_dist)
     return distances, new_centroids
 
 
@@ -266,6 +266,7 @@ def semantic_segment(
     scale: float = 1.0,
     n_classes: int = -1,
     crf: CRFParams = default_crf_params,
+    use_labels: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     h, w, c = img_arr.shape
     over_seg = over_seg.reshape((h, w))
@@ -289,13 +290,16 @@ def semantic_segment(
 
     semantic_seg = np.zeros((h, w))
     semantic_seg = merged_clusters[over_seg]
-    for i, val in enumerate(np.unique(over_seg)):
-        current_class = np.where(over_seg == val, merged_clusters[i], 0)
-        semantic_seg += current_class
+    # for i, val in enumerate(np.unique(over_seg)):
+    #    current_class = np.where(over_seg == val, merged_clusters[i], 0)
+    #    semantic_seg += current_class
 
     distances, _ = get_feat_dists_from_centroids(features, centroids, merged_clusters)
 
-    refined = do_crf_from_distances(distances.T, img_arr, n_classes, crf)
+    if use_labels:
+        refined = do_crf_from_labels(semantic_seg - 1, img_arr, n_classes, crf)
+    else:
+        refined = do_crf_from_distances(distances.T, img_arr, n_classes, crf)
     return refined, semantic_seg
 
 
