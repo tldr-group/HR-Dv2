@@ -9,10 +9,18 @@ from skimage.morphology import disk
 from typing import Tuple, List
 
 
-def do_single_pca(arr: np.ndarray, n_components: int = 3) -> np.ndarray:
+def do_single_pca(
+    arr: np.ndarray, n_components: int = 3, n_samples: int = -1
+) -> np.ndarray:
     # arr in shape (n_samples, n_features)
     pca = PCA(n_components=n_components)
-    pca.fit(arr)
+    if n_samples > -1:
+        inds = np.arange(arr.shape[0])
+        sample_inds = np.random.choice(inds, n_samples)
+        train_data = arr[sample_inds]
+    else:
+        train_data = arr
+    pca.fit(train_data)
     projection = pca.transform(arr)
     return projection
 

@@ -49,13 +49,13 @@ def get_net(json: dict) -> nn.Module:
 
 def object_localize(net: nn.Module, n: int, json: dict, single: bool = False) -> None:
     dataset = Dataset(
-        "VOC07",
-        "test",
+        "VOC12",
+        "val",
         True,
         tr.to_norm_tensor,
         "experiments/object_localization/",
     )
-    obj_loop(net, dataset, n, json, "experiments/subsets/dv2/voc07s_220824", 20, single)
+    obj_loop(net, dataset, n, json, "experiments/subsets/dv2/voc12s_230824", 20, single)
 
 
 def object_segment_cub(net: nn.Module, n: int, json: dict) -> None:
