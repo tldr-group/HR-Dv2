@@ -2,6 +2,7 @@ import numpy as np
 from PIL import Image
 from multiprocessing import Queue
 import pickle
+from skops.io import load as skload
 
 import torch
 from torch.nn.functional import interpolate
@@ -127,8 +128,11 @@ class Model:
         pickle.dump(self.classifier, file_obj)
 
     def load_model(self, path: str) -> None:
-        with open(path, "rb") as f:
-            self.classifier = pickle.load(f)
+        if ".pkl" in path.lower():
+            with open(path, "rb") as f:
+                self.classifier = pickle.load(f)
+        else:
+            self.classifier = skload(path)
 
 
 class DeepFeaturesModel(Model):
@@ -185,7 +189,6 @@ class FeatUp(DeepFeaturesModel):
 
     def img_to_features(self, img: Image.Image) -> np.ndarray:
         rgb_pil_img = img.convert("RGB")
-        print("featup")
         tensor: torch.Tensor = tr.to_norm_tensor(rgb_pil_img)
         tensor = tensor.cuda()
         feats = self.net.forward(tensor.unsqueeze(0))
@@ -222,8 +225,8 @@ class Hybrid(DeepFeaturesModel):
         arr = np.array(greyscale)
         classical_feats = multiscale_advanced_features(arr, DEAFAULT_WEKA_FEATURES)
         hybrid_feats = np.concatenate((deep_feats, classical_feats), axis=-1)
-        print(hybrid_feats.shape)
-        print(self.classifier)
+        # print(hybrid_feats.shape)
+        # print(self.classifier)
         hybrid_feats = rescale_pca_img(hybrid_feats)
         return hybrid_feats
 

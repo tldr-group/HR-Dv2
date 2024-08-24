@@ -186,6 +186,7 @@ cython_debug/
 *out*
 *experiments/weakly_supervised/data/*
 *experiments/weakly_supervised/masks/*
+*experiments/weakly_supervised/preds/*
 *experiments/weakly_supervised/*.bz2
 *experiments/weakly_supervised/*training_data*
 *tk_themes/
