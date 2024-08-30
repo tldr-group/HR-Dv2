@@ -2,8 +2,10 @@
 new features like overlapping patches and attention visualisation"""
 
 import torch
+from torch import nn
 import torch.nn.functional as F
 import math
+import numpy as np
 import os
 
 from typing import Tuple, Callable, TypeAlias, Literal
@@ -75,6 +77,35 @@ def get_qkvo_per_head(
     return per_head
 
 
+def resize_proj_kernel(proj: nn.Conv2d, new_kernel_size: int) -> None:
+    old_weights: torch.Tensor = proj.weight
+    b, c, h, w = old_weights.shape
+    # new_weights = F.interpolate(old_weights, size=(new_kernel_size, new_kernel_size))
+    k, m = new_kernel_size, w // 2
+    l, r = math.floor(k / 2), math.ceil(k / 2)
+    new_weights = old_weights[:, :, m - l : m + r, m - l : m + r]
+
+    old_norm = torch.sum(torch.abs(old_weights))
+    new_norm = torch.sum(torch.abs(new_weights))
+    new_weights = new_weights * (old_norm / new_norm)
+    proj.weight = nn.Parameter(new_weights)
+    print(new_weights.shape)
+    proj.stride = torch.nn.modules.utils._pair(new_kernel_size)
+
+
+def checkboard_weights(proj: nn.Conv2d, patch_size: int, stride: int) -> None:
+    s, k = stride, patch_size
+    w = math.ceil(k / (s * 2))
+    c = np.kron([[1, 0] * w, [0, 1] * w] * w, np.ones((s, s)))
+    c = c[:patch_size, :patch_size]
+    tc = torch.tensor(c).unsqueeze(0).unsqueeze(0)
+
+    old_weights: torch.Tensor = proj.weight
+    print(f"old weights: {old_weights.shape}")
+    new_weights = torch.tensor(tc * old_weights, device=old_weights.device)
+    proj.weight = nn.Parameter(new_weights)
+
+
 class Patch:
     @staticmethod
     def _fix_pos_enc(patch_size: int, stride_hw: Tuple[int, int]) -> Callable:
@@ -112,20 +143,22 @@ class Patch:
             #                               stride {stride_hw} got {h0}x{w0}={h0 * w0} expecting {npatch}"""
             # we add a small number to avoid floating point error in the interpolation
             # see discussion at https://github.com/facebookresearch/dino/issues/8
-            w0, h0 = w0 + 0.1, h0 + 0.1
+            # w0, h0 = w0 + 0.1, h0 + 0.1
+            scale_factor = ((w0 / math.sqrt(N), h0 / math.sqrt(N)),)
             patch_pos_embed = F.interpolate(
                 patch_pos_embed.reshape(
                     1, int(math.sqrt(N)), int(math.sqrt(N)), dim
                 ).permute(0, 3, 1, 2),
-                scale_factor=(w0 / math.sqrt(N), h0 / math.sqrt(N)),
+                size=(int(w0), int(h0)),
                 mode="bicubic",
                 align_corners=False,
                 recompute_scale_factor=False,
+                antialias=False,
             )
-            assert (
-                int(w0) == patch_pos_embed.shape[-2]
-                and int(h0) == patch_pos_embed.shape[-1]
-            )
+            # assert (
+            #    int(w0) == patch_pos_embed.shape[-2]
+            #    and int(h0) == patch_pos_embed.shape[-1]
+            # )
             patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
             return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1).to(
                 previous_dtype

@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 from timm import create_model
 
-from .patch import Patch
+from .patch import Patch, checkboard_weights, resize_proj_kernel
 
 from types import MethodType
 from .transform import iden_partial
@@ -32,6 +32,9 @@ class HighResDV2(nn.Module):
         pca_dim: int = -1,
         dtype: torch.dtype | int = torch.float32,
         track_grad: bool = False,
+        checkerboard=False,
+        sharpen: bool = False,
+        new_kernel_size=None,
     ) -> None:
         super().__init__()
 
@@ -74,6 +77,35 @@ class HighResDV2(nn.Module):
         self.n_register_tokens = 4
 
         self.stride = _pair(stride)
+        self.checkerboard = checkerboard
+        self.sharpen = sharpen
+        self.sharpen_conv = nn.Conv2d(
+            self.feat_dim,
+            self.feat_dim,
+            kernel_size=(3, 3),
+            stride=(1, 1),
+            padding=1,
+            groups=self.feat_dim,
+            bias=False,
+        )
+        sharpen_t = (
+            torch.tensor(
+                [[0.0, -1.0, 0.0], [-1.0, 5.0, -1.0], [0.0, -1.0, 0.0]],
+                requires_grad=False,
+            )
+            .unsqueeze(0)
+            .unsqueeze(0)
+        )
+        sharpen_t = sharpen_t.repeat(self.feat_dim, 1, 1, 1)
+        self.sharpen_conv.weight = nn.Parameter(sharpen_t)
+
+        if new_kernel_size != None:
+            resize_proj_kernel(self.dinov2.patch_embed.proj, new_kernel_size)
+            self.original_patch_size = new_kernel_size
+            self.original_stride = _pair(new_kernel_size)
+            patch = new_kernel_size  #
+        print(patch, self.original_patch_size)
+
         # we need to set the stride to the original once before we set it to desired stride
         # i don't know why
         self.set_model_stride(self.dinov2, patch)
@@ -130,6 +162,12 @@ class HighResDV2(nn.Module):
         # if new_stride_pair == self.stride:
         #    return  # early return as nothing to be done
         self.stride = new_stride_pair
+        old_stride_l = dino_model.patch_embed.proj.stride[0]
+        if (old_stride_l != stride_l) and self.checkerboard:
+            checkboard_weights(
+                dino_model.patch_embed.proj, self.original_patch_size, stride_l
+            )
+
         dino_model.patch_embed.proj.stride = new_stride_pair  # type: ignore
         if verbose:
             print(f"Setting stride to ({stride_l},{stride_l})")
@@ -375,6 +413,8 @@ class HighResDV2(nn.Module):
             out_feature_img += inverted
 
         mean = out_feature_img / N_transforms
+        if self.sharpen:
+            mean = self.sharpen_conv(mean)
         return mean
 
 
