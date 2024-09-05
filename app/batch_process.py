@@ -71,7 +71,7 @@ def main_loop(
 
     vals = []
     crf_suffix = "crf" if crf else ""
-    save_path = f"{expr_folder}/preds/{model_name}_{crf_suffix}"
+    save_path = f"{expr_folder}/preds/{model_name}_no_tr_{crf_suffix}"
     try:
         mkdir(save_path)
     except FileExistsError:
@@ -115,6 +115,13 @@ def main_loop(
     print(f"{prefix}: {jac.compute()} +/- {np.std(vals)}")
 
 
+name = "DINO-S-8"
+do_crf = False
+path = f"/home/ronan/HR-Dv2/experiments/weakly_supervised/models/trained/cells_dino_lr.skops"
+main_loop(path, name, f"{name}, crf: {do_crf}", True, do_crf)
+
+"""
+MAIN EXPERIMENT LOOP
 model_names = ["FeatUp", "DINO-S-8", "DINOv2-S-14", "hybrid"]  # "classical"
 model_fnames = ["jbu", "dino", "dv2", "hybrid"]  # "classical"
 class_names = ["lr" for i in range(len(model_names))]  # "rf"] +
@@ -123,7 +130,7 @@ for i in range(len(model_names)):
     path = f"/home/ronan/HR-Dv2/experiments/weakly_supervised/models/trained/cells_{model_fnames[i]}_{class_names[i]}.skops"
     for do_crf in (False, True):
         main_loop(path, name, f"{name}, crf: {do_crf}", True, do_crf)
-
+"""
 
 """
 trained on 6 cells
@@ -319,4 +326,10 @@ DINOv2-S-14, 16: : 0.8581506013870239
 90/150
 120/150
 random_forest, 16: : 0.40712738037109375
+"""
+
+""" ABLATIONS
+Dv2, no shift - 0.7915034294128418
+DINO, no shift - 0.7446209192276001
+
 """

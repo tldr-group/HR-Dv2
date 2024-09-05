@@ -193,3 +193,5 @@ cython_debug/
 *micrographs*
 experiments/*.zip
 *make_poster_img*
+*.zip
+zipignore.txt

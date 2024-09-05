@@ -34,11 +34,13 @@ def get_net(json: dict) -> nn.Module:
         fwd_shift, inv_shift = tr.get_shift_transforms(shift_dists, "Moore")
         fwd, inv = tr.combine_transforms(fwd_shift, fwd_flip, inv_shift, inv_flip)
     elif json["do_shifts"]:
+        print("no flips!")
         shift_dists = [i for i in range(1, json["max_shift_px"] + 1)]
         fwd, inv = tr.get_shift_transforms(shift_dists, "Moore")
     elif json["do_flips"]:
         fwd, inv = tr.get_flip_transforms()
     else:
+        print("no transforms!")
         fwd, inv = [], []
     net.set_transforms(fwd, inv)
     net.cuda()
@@ -75,7 +77,7 @@ def object_segment_dut(net: nn.Module, n: int, json: dict) -> None:
         "experiments/object_segmentation/datasets/DUTS-TE/",
         n,
         json,
-        "experiments/subsets/dv2/duts_190824/",
+        "experiments/subsets/dv2/duts_02924_no_shift/",
         10,
     )
 
@@ -89,10 +91,10 @@ if __name__ == "__main__":
         expr_json = load(f)
 
     # json = expr_json["dv2_strict_crf"]
-    json = expr_json["vanilla_dv2"]
+    json = expr_json["hr_dv2_noshift"]
     net = get_net(json)
-    # object_segment_dut(net, n_duts, json)
-    object_localize(net, n_voc7, json, True)
+    object_segment_dut(net, n_duts, json)
+    # object_localize(net, n_voc7, json, True)
     # object_localize(net, 40, json)
 
 
@@ -107,6 +109,8 @@ maybe limiting n boxes to 5 for fair comparison to MOST?
 
 vanilla dv2, \rho_a > mean, VOC07 CorLoc = 0.716 w/ 3.49 boxes
 3900 / 5823: CorLoc=0.7246 with 3.3826 boxes
+
+vanilla dv2, no tr, DUTs mIoU=0.6381+/-0.2558
 
 
 """
