@@ -56,9 +56,3 @@ To compare with [FeatUp](https://github.com/mhamilton723/FeatUp), a different fe
 ```
 pip install git+https://github.com/mhamilton723/FeatUp
 ```
-
-### Zip (for submission):
-
-```
-zip -r HR-Dv2.zip . -x@zipignore.txt
-```
