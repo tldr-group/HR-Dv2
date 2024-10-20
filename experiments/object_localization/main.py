@@ -4,6 +4,7 @@ import torch
 import torchvision.transforms.functional as TF
 import numpy as np
 from PIL import Image, ImageDraw
+from skimage.color import label2rgb
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -17,15 +18,16 @@ torch.cuda.empty_cache()
 from hr_dv2 import HighResDV2, tr
 from hr_dv2.utils import *
 from hr_dv2.segment import (
-    foreground_segment,
-    multi_object_foreground_segment,
+    fwd_and_cluster,
+    semantic_segment,
+    get_attn_density,
     multi_class_bboxes,
     get_seg_bboxes,
     largest_connected_component,
     get_bbox,
     default_crf_params,
 )
-from dataset import ImageDataset, Dataset, bbox_iou, extract_gt_VOC
+from .dataset import ImageDataset, Dataset, bbox_iou, extract_gt_VOC
 
 torch.manual_seed(2189)
 np.random.seed(2189)
@@ -47,6 +49,7 @@ def plot_results(
     density_map: np.ndarray,
     semantic: np.ndarray,
     idx: int,
+    save_dir: str,
 ) -> None:
     def _draw_bboxes(bbox_list, colours: List[str], ax) -> None:
         for i, bbox in enumerate(bbox_list):
@@ -73,11 +76,15 @@ def plot_results(
     _draw_bboxes(gt_bboxes, gt_colours, img_ax)
 
     ox, oy = offset
-    h, w, c = seg.shape
+    print(seg.shape)
+    h, w = seg.shape
+    seg = seg.reshape((h, w, 1))
+
     ih, iw, c = img_arr.shape
     dy, dx = (ih - (h + oy)), (iw - (w + ox))
     seg = np.pad(seg, ((oy, dy), (ox, dx), (0, 0)))
     seg = seg.reshape((ih, iw, 1))
+
     alpha_mask = np.where(seg >= 1, [1, 1, 1, 1], [0.25, 0.25, 0.25, 0.95])
     img = Image.fromarray(img_arr).convert("RGBA")
     masked = (img * alpha_mask).astype(np.uint8)
@@ -86,17 +93,22 @@ def plot_results(
     _draw_bboxes(pred_bboxes, pred_colours, bbox_ax)
 
     density_ax.imshow(density_map)
-    semantic_ax.imshow(semantic)
+    semantic_ax.imshow(semantic, cmap="tab20c", interpolation="nearest")
 
     for ax in [img_ax, bbox_ax, density_ax, semantic_ax]:
         ax.set_axis_off()
         ax.set_axis_off()
     plt.tight_layout()
-    plt.savefig(f"{DIR}/out/{idx}.png")
+    plt.savefig(f"{save_dir}/{idx}.png")
+    plt.close(fig)
 
 
-def save_results(save_data: List, new: bool = False) -> None:
-    with open(f"{DIR}/out/results.csv", "w+", newline="") as csvfile:
+def save_results(
+    save_data: List,
+    save_dir: str,
+    new: bool = False,
+) -> None:
+    with open(f"{save_dir}results.csv", "w+", newline="") as csvfile:
         writer = csv.writer(csvfile)
         if new:
             writer.writerow(
@@ -137,6 +149,117 @@ def get_corloc(
         best_ious.append(best_box_iou)
         matches.append(match)
     return corloc, matches, best_ious
+
+
+def loop(
+    net: torch.nn.Module,
+    dataset: Dataset,
+    n: int,
+    json: dict,
+    save_dir: str,
+    print_per: int = 1,
+    single: bool = False,
+) -> None:
+    corlocs = []
+    n_boxes = []
+    save_data = []
+
+    img_idx: int = 0
+    n_imgs = len(dataset.dataloader)
+    for im_id, inp in enumerate(dataset.dataloader):
+        img = inp[0]
+
+        im_name = dataset.get_image_name(inp[1])
+
+        # pass if no image name
+        if im_name is None:
+            continue
+
+        gt_bbxs, gt_cls = dataset.extract_gt(inp[1], im_name)
+
+        if gt_bbxs is not None:
+            # pass if no bbox
+            n_gt_bboxes = gt_bbxs.shape[0]
+            if n_gt_bboxes == 0:
+                continue
+
+        c, h, w = img.shape
+        sub_h: int = h % PATCH_SIZE
+        sub_w: int = w % PATCH_SIZE
+        oy, ox = sub_h // 2, sub_w // 2
+
+        transform = tr.closest_crop(h, w, PATCH_SIZE, to_tensor=False)
+
+        pil_img: Image.Image = tr.to_img(tr.unnormalize(img))
+        uncropped_img_arr = np.array(pil_img)
+
+        img = transform(img)
+        img_arr = np.array(tr.to_img(tr.unnormalize(img)))
+        img = img.cuda()
+
+        labels, centers, feats, attn, normed = fwd_and_cluster(
+            net,
+            img,
+            json["n_clusters"],
+            attn_choice=json["attn"],
+            sequential=json["sequential"],
+        )
+        seg, _ = semantic_segment(
+            normed, attn, labels, centers, img_arr, json["cutoff_scale"]
+        )
+
+        sum_cls = np.sum(attn, axis=0)
+        amap, dens = get_attn_density(seg, sum_cls)
+        fg = amap > np.mean(dens)
+
+        fg_seg = seg * fg
+
+        largest_connected = largest_connected_component(fg)
+        superbox = np.array(get_bbox(largest_connected, (ox, oy)))
+        if single is False:
+            pred_bboxes = multi_class_bboxes(fg_seg, (ox, oy))
+            pred_bboxes = deduplicate_superbox(pred_bboxes, superbox)
+        else:
+            pred_bboxes = np.array([superbox])
+        n_pred_boxes = pred_bboxes.shape[0]
+        img = img.cpu()
+
+        corloc, matches, ious = get_corloc(gt_bbxs, pred_bboxes)
+        corlocs.append(corloc)
+        n_boxes.append(n_pred_boxes)
+
+        try:
+            if img_idx % print_per == 0:
+                plot_results(
+                    uncropped_img_arr,
+                    fg,
+                    gt_bbxs,
+                    pred_bboxes,
+                    matches,
+                    (ox, oy),
+                    amap,
+                    seg,
+                    img_idx,
+                    save_dir,
+                )
+        except Exception as e:
+            print(e)
+            pass
+
+        data = [img_idx, im_name, corloc, n_gt_bboxes, n_pred_boxes, ious]
+        save_data.append(data)
+        img_idx += 1
+        if img_idx % print_per == 0 and img_idx > 0:
+            avg_corloc = np.mean(corlocs)
+            print(
+                f"{img_idx} / {n_imgs}: CorLoc={avg_corloc :.4f} with {np.mean(n_boxes) :.4f} boxes"
+            )
+            new_file = img_idx == SAVE_PER
+            save_results(save_data, save_dir, new_file)
+            save_data = []
+
+        if img_idx > n:  # break
+            return
 
 
 def main() -> None:

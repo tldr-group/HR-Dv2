@@ -4,6 +4,8 @@ import torch.nn as nn
 from torch.nn.modules.utils import _pair
 import torch.nn.functional as F
 
+from timm import create_model
+
 from .patch import Patch
 
 from types import MethodType
@@ -16,7 +18,7 @@ from typing import List, Tuple, Callable, TypeAlias, Literal
 Interpolation: TypeAlias = Literal[
     "nearest", "linear", "bilinear", "bicubic", "trilinear", "area", "nearest-exact"
 ]
-AttentionOptions: TypeAlias = Literal["cls", "reg", "both", "none"]
+AttentionOptions: TypeAlias = Literal["q", "k", "v", "o", "none"]
 
 
 # ==================== MODULE ====================
@@ -27,40 +29,72 @@ class HighResDV2(nn.Module):
         self,
         dino_name: str,
         stride: int,
-        sequential: bool = False,
-        dtype: torch.dtype = torch.float32,
+        pca_dim: int = -1,
+        dtype: torch.dtype | int = torch.float32,
         track_grad: bool = False,
     ) -> None:
         super().__init__()
 
-        self.dinov2: nn.Module = torch.hub.load("facebookresearch/dinov2", dino_name)
+        self.dinov2: nn.Module
+        if "dinov2" in dino_name:
+            hub_path = "facebookresearch/dinov2"
+            self.dinov2 = torch.hub.load(hub_path, dino_name)
+        elif "dino" in dino_name:
+            hub_path = "facebookresearch/dino:main"
+            self.dinov2 = torch.hub.load(hub_path, dino_name)
+        elif "deit" in dino_name:
+            self.dinov2 = create_model(  # was 224
+                "deit_small_patch16_224", pretrained=True
+            )
+        elif "384" in dino_name:
+            self.dinov2 = create_model(  # was 224
+                "vit_small_patch16_384", pretrained=True
+            )
+        else:
+            self.dinov2 = create_model(  # was 224
+                "vit_small_patch16_224", pretrained=True
+            )
+
+        # self.dinov2: nn.Module = torch.hub.load("facebookresearch/dinov2", dino_name)
+
         self.dinov2.eval()
+
+        if "dinov2" not in dino_name:
+            self.dinov2.num_heads = 6  # type: ignore
+            self.dinov2.num_register_tokens = 0  # type: ignore
 
         # Get params of Dv2 model and store references to original settings & methods
         feat, patch = self.get_model_params(dino_name)
         self.original_patch_size: int = patch
         self.original_stride = _pair(patch)
         # may need to deepcopy this instead of just referencing
-        self.original_pos_enc = self.dinov2.interpolate_pos_encoding
+        # self.original_pos_enc = self.dinov2.interpolate_pos_encoding
         self.feat_dim: int = feat
         self.n_heads: int = 6
         self.n_register_tokens = 4
 
         self.stride = _pair(stride)
+        # we need to set the stride to the original once before we set it to desired stride
+        # i don't know why
+        self.set_model_stride(self.dinov2, patch)
         self.set_model_stride(self.dinov2, stride)
 
         self.transforms: List[partial] = []
         self.inverse_transforms: List[partial] = []
-        self.sequential = sequential
         self.interpolation_mode: Interpolation = "nearest-exact"
+        self.pca_dim = pca_dim
+        self.do_pca = pca_dim > 3
 
         # If we want to save memory, change to float16
+        if type(dtype) == int:
+            dtype = torch.float16 if dtype == 16 else torch.float32
+
         self.dtype = dtype
         if dtype != torch.float32:
             self = self.to(dtype)
         self.track_grad = track_grad  # off by default to save memory
 
-        self.patch_last_block(self.dinov2)
+        self.patch_last_block(self.dinov2, dino_name)
 
     def get_model_params(self, dino_name: str) -> Tuple[int, int]:
         """Match a name like dinov2_vits14 / dinov2_vitg16_lc etc. to feature dim and patch size.
@@ -93,23 +127,23 @@ class HighResDV2(nn.Module):
         """
 
         new_stride_pair = torch.nn.modules.utils._pair(stride_l)
-        if new_stride_pair == self.stride:
-            return  # early return as nothing to be done
+        # if new_stride_pair == self.stride:
+        #    return  # early return as nothing to be done
         self.stride = new_stride_pair
         dino_model.patch_embed.proj.stride = new_stride_pair  # type: ignore
         if verbose:
             print(f"Setting stride to ({stride_l},{stride_l})")
 
-        if new_stride_pair == self.original_stride:
-            # if resetting to original, return original method
-            dino_model.interpolate_pos_encoding = self.original_pos_enc  # type: ignore
-        else:
-            dino_model.interpolate_pos_encoding = MethodType(  # type: ignore
-                Patch._fix_pos_enc(self.original_patch_size, new_stride_pair),
-                dino_model,
-            )  # typed ignored as they can't type check reassigned methods (generally is poor practice)
+        # if new_stride_pair == self.original_stride:
+        # if resetting to original, return original method
+        #    dino_model.interpolate_pos_encoding = self.original_pos_enc  # type: ignore
+        # else:
+        dino_model.interpolate_pos_encoding = MethodType(  # type: ignore
+            Patch._fix_pos_enc(self.original_patch_size, new_stride_pair),
+            dino_model,
+        )  # typed ignored as they can't type check reassigned methods (generally is poor practice)
 
-    def patch_last_block(self, dino_model: nn.Module) -> None:
+    def patch_last_block(self, dino_model: nn.Module, dino_name: str) -> None:
         """Patch the final block of the dino model to add attention return code.
 
         :param dino_model: DINO or DINOv2 model
@@ -117,11 +151,32 @@ class HighResDV2(nn.Module):
         """
         final_block = dino_model.blocks[-1]  # type: ignore
         attn_block = final_block.attn  # type: ignore
+        # hilariously this also works for dino i.e we can patch dino's attn block forward to
+        # use the memeory efficienty attn like in dinov2
         attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
-        final_block.forward = MethodType(Patch._fix_block_forward(), final_block)  # type: ignore
-        dino_model.get_last_self_attention = MethodType(  # type: ignore
-            Patch._add_forward_attn(), dino_model
-        )
+        if "dinov2" in dino_name:
+            final_block.forward = MethodType(Patch._fix_block_forward_dv2(), final_block)  # type: ignore
+            dino_model.forward_feats_attn = MethodType(  # type: ignore
+                Patch._add_new_forward_features_dv2(), dino_model
+            )
+        elif "dino" in dino_name:
+            for i, blk in enumerate(dino_model.blocks):
+                blk.forward = MethodType(Patch._fix_block_forward_dino(), blk)
+                attn_block = blk.attn
+                attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
+            final_block.forward = MethodType(Patch._fix_block_forward_dino(), final_block)  # type: ignore
+            dino_model.forward_feats_attn = MethodType(  # type: ignore
+                Patch._add_new_forward_features_dino(), dino_model
+            )
+        else:
+            for i, blk in enumerate(dino_model.blocks):
+                blk.forward = MethodType(Patch._fix_block_forward_dino(), blk)
+                attn_block = blk.attn
+                attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
+            final_block.forward = MethodType(Patch._fix_block_forward_dino(), final_block)  # type: ignore
+            dino_model.forward_feats_attn = MethodType(  # type: ignore
+                Patch._add_new_forward_features_vit(), dino_model
+            )
 
     def get_n_patches(self, img_h: int, img_w: int) -> Tuple[int, int]:
         stride_l = self.stride[0]
@@ -172,77 +227,6 @@ class HighResDV2(nn.Module):
         return img_batch
 
     @torch.no_grad()
-    def get_dv2_features(self, x: torch.Tensor, stride_l: int = -1) -> torch.Tensor:
-        """Feed batched img tensor $x into DINOv2, optionally set stride and return features.
-
-        :param x: batched img tensor, shape [B, C, H, W]
-        :type x: torch.Tensor
-        :param stride: desired stride/resolution for VE, defaults to -1
-        :type stride: int, optional
-        :return: features extracted by DINOv2
-        :rtype: torch.Tensor
-        """
-        if self.dtype != torch.float32:
-            x = x.to(self.dtype)
-
-        if stride_l > 0:  # if we don't want to change stride. Assumes square stride
-            self.set_model_stride(self.dinov2, stride_l)
-        feat_dict = self.dinov2.forward_features(x)  # type: ignore
-        feat_tensor: torch.Tensor = feat_dict["x_norm_patchtokens"]
-        if self.dtype != torch.float32:
-            feat_tensor = feat_tensor.to(self.dtype)
-        return feat_tensor
-
-    @torch.no_grad()
-    def get_dv2_attn(
-        self,
-        x: torch.Tensor,
-        stride_l: int = -1,
-        which: AttentionOptions = "cls",
-    ) -> torch.Tensor:
-        """Feed batched img tensor $x into DINOv2, optionally set stride and return features.
-
-        :param x: batched img tensor, shape [B, C, H, W]
-        :type x: torch.Tensor
-        :param stride: desired stride/resolution for VE, defaults to -1
-        :type stride: int, optional
-        :return: features extracted by DINOv2
-        :rtype: torch.Tensor
-        """
-        if self.dtype != torch.float32:
-            x = x.to(self.dtype)
-
-        if stride_l > 0:  # if we don't want to change stride. Assumes square stride
-            self.set_model_stride(self.dinov2, stride_l)
-        attention: torch.Tensor = self.dinov2.get_last_self_attention(x)  # type: ignore
-
-        # change this for ViTs
-        b, n_heads, n_tokens, _ = attention.shape
-        s0: int = 0
-        s1: int = 1
-        if which == "reg":
-            s0 = 1
-            s1 = 1 + self.n_register_tokens
-        elif which == "both":
-            s1 = 1 + self.n_register_tokens
-
-        # we use a list approach to ensure our we get correct order i.e that attention[:, 0:6, :, :]
-        # is the attention of 6 heads to cls/register token 0
-        attn_list = []
-        for i in range(s0, s1):
-            # attention tokens are packed in after the first token; the spatial tokens follow
-            token_attention = attention[:, :, i, 1 + self.n_register_tokens :].reshape(
-                b, n_heads, -1
-            )
-            attn_list.append(token_attention)
-        all_attention = torch.cat(attn_list, dim=1)
-        all_attention = torch.permute(all_attention, (0, 2, 1))
-        if self.dtype != torch.float32:
-            all_attention = all_attention.to(self.dtype)
-        print(all_attention.shape)
-        return all_attention
-
-    @torch.no_grad()
     def invert_transforms(
         self, feature_batch: torch.Tensor, x: torch.Tensor
     ) -> torch.Tensor:
@@ -250,6 +234,9 @@ class HighResDV2(nn.Module):
         make them spatial again by reshaping, permuting and resizing, then perform the
         corresponding inverse transform and add to our summand variable. Finally we divide by
         N_imgs to create average.
+
+        # TODO: parameterise this with the inverse transform s.t can just feed single batch (of
+        say the attn map) and the iden partial transform and get upsampled
 
         :param feature_batch: batch of N_transform features from Dv2 with shape (n_patches, n_features)
         :type feature_batch: torch.Tensor
@@ -259,8 +246,7 @@ class HighResDV2(nn.Module):
         :rtype: torch.Tensor
         """
         _, img_h, img_w = x.shape
-        c = feature_batch.shape[-1]  # self.feat_dim
-        # print(feature_batch.shape)
+        c = feature_batch.shape[-1]
         stride_l = self.stride[0]
         n_patch_w: int = 1 + (img_w - self.original_patch_size) // stride_l
         n_patch_h: int = 1 + (img_h - self.original_patch_size) // stride_l
@@ -280,6 +266,7 @@ class HighResDV2(nn.Module):
             feat_patch_flat = feature_batch[i]
             # interp expects batched spatial tensors so reshape and unsqueeze
             feat_patch = feat_patch_flat.view((n_patch_h, n_patch_w, c))
+
             permuted = feat_patch.permute((2, 0, 1)).unsqueeze(0)
 
             full_size = F.interpolate(
@@ -296,11 +283,11 @@ class HighResDV2(nn.Module):
 
     @torch.no_grad()
     def forward(
-        self, x: torch.Tensor, attn: AttentionOptions = "none"
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        self,
+        x: torch.Tensor,
+        attn_choice: AttentionOptions = "none",
+    ) -> torch.Tensor:
         """Feed input img $x through network and get low and high res features.
-        TODO: rewrite to always return low-res attn as well, then just resize later?
-        TODO: remove low res-forward pass as not needed - replace with attn?
 
         :param x: unbatched image tensor
         :type x: torch.Tensor
@@ -310,25 +297,25 @@ class HighResDV2(nn.Module):
         x.requires_grad = self.track_grad
         if self.dtype != torch.float32:  # cast (i.e to f16)
             x = x.type(self.dtype)
+
         img_batch = self.get_transformed_input_batch(x, self.transforms)
-
-        # this is unweildy, might need a change
-        temp_stride = self.stride
-
-        low_res_features = self.get_dv2_features(
-            x.unsqueeze(0), self.original_stride[0]
-        )
-        if attn == "none":
-            features_batch = self.get_dv2_features(img_batch, temp_stride[0])
+        out_dict = self.dinov2.forward_feats_attn(img_batch, None, attn_choice)  # type: ignore
+        if attn_choice != "none":
+            feats, attn = out_dict["x_norm_patchtokens"], out_dict["x_patchattn"]
+            features_batch = torch.concat((feats, attn), dim=-1)
         else:
-            features_batch = self.get_dv2_attn(img_batch, temp_stride[0], attn)
+            features_batch = out_dict["x_norm_patchtokens"]
+
+        if self.dtype != torch.float32:  # cast (i.e to f16)
+            features_batch = features_batch.type(self.dtype)
+
         upsampled_features = self.invert_transforms(features_batch, x)
-        return upsampled_features, low_res_features
+        return upsampled_features
 
     @torch.no_grad()
     def forward_sequential(
-        self, x: torch.Tensor, attn: AttentionOptions = "none"
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        self, x: torch.Tensor, attn_choice: AttentionOptions = "none"
+    ) -> torch.Tensor:
         """Perform transform -> featurise -> upscale -> inverse -> average forward pass
         sequentially, performing more calls to DINOv2 but reducing the memory overhead.
 
@@ -343,18 +330,10 @@ class HighResDV2(nn.Module):
         img_batch = self.get_transformed_input_batch(x, self.transforms)
         temp_stride = self.stride
 
-        low_res_features = self.get_dv2_features(
-            x.unsqueeze(0), self.original_stride[0]
-        )
-
         _, img_h, img_w = x.shape
 
-        if attn == "cls":
-            c = self.n_heads
-        elif attn == "reg":
-            c = self.n_heads * self.n_register_tokens
-        elif attn == "both":
-            c = self.n_heads * (self.n_register_tokens + 1)
+        if attn_choice != "none":
+            c = self.n_heads + self.feat_dim
         else:
             c = self.feat_dim
 
@@ -375,10 +354,13 @@ class HighResDV2(nn.Module):
         N_transforms = len(self.transforms)
         for i in range(N_transforms):
             transformed_img = img_batch[i].unsqueeze(0)
-            if attn == "none":
-                features = self.get_dv2_features(transformed_img, temp_stride[0])
+            out_dict = self.dinov2.forward_feats_attn(transformed_img, None, attn_choice)  # type: ignore
+            if attn_choice != "none":
+                feats, attn = out_dict["x_norm_patchtokens"], out_dict["x_patchattn"]
+                features = torch.concat((feats, attn), dim=-1)
             else:
-                features = self.get_dv2_attn(transformed_img, temp_stride[0], attn)
+                features = out_dict["x_norm_patchtokens"]
+
             features = features.squeeze(0)
             feat_patch = features.view((n_patch_h, n_patch_w, c))
             permuted = feat_patch.permute((2, 0, 1)).unsqueeze(0)
@@ -393,20 +375,50 @@ class HighResDV2(nn.Module):
             out_feature_img += inverted
 
         mean = out_feature_img / N_transforms
-        return mean, low_res_features
+        return mean
 
-    @torch.no_grad()
-    def pca(self, f: torch.Tensor, k: int) -> torch.Tensor:
-        """Approximate (batched) tensor $f with its $k principal components computed over
-        all batches in f.
 
-        :param f: tensor of features. Can be flat or spatial, but flat preferred
-        :type f: torch.Tensor
-        :param k: number of principal components to use
-        :type k: int
-        :return: $k component PCA of $f
-        :rtype: torch.Tensor
-        """
-        U, S, V = torch.pca_lowrank(f, q=k)
-        projection = torch.matmul(f, V)
-        return projection
+# from FeatUp: https://github.com/mhamilton723/FeatUp/blob/main/featup/util.py
+class TorchPCA(object):
+
+    def __init__(self, n_components):
+        self.n_components = n_components
+
+    def fit(self, X):
+        self.mean_ = X.mean(dim=0)
+        unbiased = X - self.mean_.unsqueeze(0)
+        U, S, V = torch.pca_lowrank(
+            unbiased, q=self.n_components, center=False, niter=4
+        )
+        self.components_ = V.T
+        self.singular_values_ = S
+        return self
+
+    def transform(self, X):
+        t0 = X - self.mean_.unsqueeze(0)
+        projected = t0 @ self.components_.T
+        return projected
+
+
+def torch_pca(
+    feature_img: torch.Tensor,
+    dim: int = 128,
+    fit_pca=None,
+    max_samples: int = 20000,
+):
+    device = feature_img[0].device
+    C, H, W = feature_img.shape
+    N = H * W
+    flat = feature_img.reshape(C, N).permute(1, 0)
+
+    if max_samples is not None and N > max_samples:
+        indices = torch.randperm(N)[:max_samples]
+        sample = flat[indices].to(torch.float32)
+    else:
+        sample = flat.to(torch.float32)
+
+    if fit_pca is None:
+        fit_pca = TorchPCA(dim)
+        fit_pca.fit(sample)
+    transformed = fit_pca.transform(flat)
+    return transformed
