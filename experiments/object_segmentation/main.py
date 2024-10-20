@@ -26,9 +26,7 @@ np.random.seed(2189)
 
 CWD = os.getcwd()
 DIR = f"{CWD}/experiments/object_segmentation/"
-# DATA_DIR = f"{CWD}/experiments/object_segmentation/datasets/CUB_200_2011"
 DATA_DIR = f"{CWD}/experiments/object_segmentation/datasets/both/"
-# DATA_DIR = "/media/ronan/T7/phd/HR_DV2/datasets/fg_mix/"
 
 
 PATCH_SIZE = 14
