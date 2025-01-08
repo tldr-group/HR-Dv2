@@ -18,6 +18,10 @@ from sklearn.preprocessing import StandardScaler
 
 from features import DEAFAULT_WEKA_FEATURES, multiscale_advanced_features
 
+from typing import Literal
+
+Transforms = Literal["shift", "flip", "both", None]
+
 
 def flatten_mask_training_data(
     feature_stack: np.ndarray, labels: np.ndarray
@@ -136,18 +140,32 @@ class Model:
 
 
 class DeepFeaturesModel(Model):
-    def __init__(self, send_queue: Queue, recv_queue: Queue, model_name: str) -> None:
+    def __init__(
+        self,
+        send_queue: Queue,
+        recv_queue: Queue,
+        model_name: str,
+        trs: Transforms = None,
+    ) -> None:
         super().__init__(send_queue, recv_queue)
 
         self.net = HighResDV2(model_name, 4, pca_dim=-1, dtype=16)
         self.net.cuda()
         self.net.eval()
 
-        shift_dists = [i for i in range(1, 2)]
+        shift_dists = [i for i in range(1, 3)]
         fwd_shift, inv_shift = tr.get_shift_transforms(shift_dists, "Moore")
         fwd_flip, inv_flip = tr.get_flip_transforms()
-        fwd, inv = tr.combine_transforms(fwd_shift, fwd_flip, inv_shift, inv_flip)
-        fwd, inv = fwd_shift, inv_shift
+
+        if trs == "both":
+            fwd, inv = tr.combine_transforms(fwd_shift, fwd_flip, inv_shift, inv_flip)
+        elif trs == "shift":
+            fwd, inv = fwd_shift, inv_shift
+        elif trs == "flip":
+            fwd, inv = fwd_flip, inv_flip
+        else:
+            fwd, inv = [], []
+
         self.net.set_transforms(fwd, inv)
         # self.net.set_transforms([], [])
 
@@ -201,8 +219,14 @@ class FeatUp(DeepFeaturesModel):
 
 class Hybrid(DeepFeaturesModel):
 
-    def __init__(self, send_queue: Queue, recv_queue: Queue, model_name: str) -> None:
-        super().__init__(send_queue, recv_queue, model_name)
+    def __init__(
+        self,
+        send_queue: Queue,
+        recv_queue: Queue,
+        model_name: str,
+        trs: Transforms = None,
+    ) -> None:
+        super().__init__(send_queue, recv_queue, model_name, trs)
         """
         self.classifier = RandomForestClassifier(
             n_estimators=200,
@@ -232,11 +256,16 @@ class Hybrid(DeepFeaturesModel):
         return hybrid_feats
 
 
-def get_featuriser_classifier(name: str, send_queue: Queue, recv_queue: Queue) -> Model:
+def get_featuriser_classifier(
+    name: str,
+    send_queue: Queue,
+    recv_queue: Queue,
+    trs: Transforms = None,
+) -> Model:
     if name == "DINOv2-S-14":
-        return DeepFeaturesModel(send_queue, recv_queue, "dinov2_vits14_reg")
+        return DeepFeaturesModel(send_queue, recv_queue, "dinov2_vits14_reg", trs)
     elif name == "DINO-S-8":
-        return DeepFeaturesModel(send_queue, recv_queue, "dino_vits8")
+        return DeepFeaturesModel(send_queue, recv_queue, "dino_vits8", trs)
     elif name == "FeatUp":
         return FeatUp(send_queue, recv_queue, "dinov2_vits14_reg")
     elif name == "hybrid":
@@ -245,6 +274,6 @@ def get_featuriser_classifier(name: str, send_queue: Queue, recv_queue: Queue) -
         # really motivates high-res dv2 features
         # is the problem the Rf or the weka?
         # crf really does kill the small phases (i.e organelles)
-        return Hybrid(send_queue, recv_queue, "dinov2_vits14_reg")
+        return Hybrid(send_queue, recv_queue, "dinov2_vits14_reg", trs)
     else:
         return WekaFeaturesModel(send_queue, recv_queue)
