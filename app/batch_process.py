@@ -12,12 +12,15 @@ from torchmetrics.classification.jaccard import JaccardIndex
 from torch.nn.functional import interpolate
 
 from multiprocessing import Queue
-from classifiers import DeepFeaturesModel, WekaFeaturesModel, get_featuriser_classifier
+from classifiers import (
+    Model,
+    DeepFeaturesModel,
+    WekaFeaturesModel,
+    get_featuriser_classifier,
+)
 from data_model import resize_longest_side
 
 from skimage.util import random_noise
-
-# TODO: add poisson noise=shotnoise (and also gaussian=thermal?) and show 0-shot perf as noise increases?
 
 
 default_mapping = [(255, 0), (170, 1), (85, 2)]
@@ -43,26 +46,57 @@ def add_noise(
 ) -> np.ndarray:
     result = input_arr / 255.0
     if possion:
-        result = random_noise(result, mode="poisson")
+        result = random_noise(result, mode="poisson", clip=True)
     if gauss_level != 0:
-        result = random_noise(result, mode="gaussian", var=gauss_level)
+        result = random_noise(result, mode="gaussian", var=gauss_level, clip=True)
     result = (result) * 255
     return result
+
+
+def load_model_or_train_with_noise(
+    model: Model, model_path: str | None, noise_params: tuple[bool, float] | None
+):
+    if model_path is not None:
+        model.load_model(model_path)
+        return
+
+    assert noise_params is not None
+    train_data: np.ndarray = imread(
+        "/home/ronan/HR-Dv2/experiments/weakly_supervised/training_data/train_stack_small.tif"
+    )
+    labels: np.ndarray = imread(
+        "/home/ronan/HR-Dv2/experiments/weakly_supervised/training_data/wss_train_labels.tiff"
+    )
+
+    feat_list: list[np.ndarray] = []
+    label_list: list[np.ndarray] = []
+
+    for i in range(len(train_data)):
+        img_arr_with_noise = add_noise(train_data[i], noise_params[0], noise_params[1])
+        inp_img = Image.fromarray(img_arr_with_noise).convert("RGB")
+
+        inp_img = resize_longest_side(inp_img, L)
+        features = model.img_to_features(inp_img)
+        feat_list.append(features)
+        label_list.append(labels[i])
+
+    model.train(feat_list, label_list, False)
 
 
 L = 518
 
 
 def main_loop(
-    model_path: str,
+    model_path: str | None,
     model_name: str,
     prefix: str,
     save: bool = False,
     crf: bool = False,
     noise_params: tuple[bool, float] = (False, 0),
 ) -> None:
-    model = get_featuriser_classifier(model_name, Queue(2), Queue(2))
-    model.load_model(model_path)
+    model = get_featuriser_classifier(model_name, Queue(2), Queue(2), "both")
+    load_model_or_train_with_noise(model, model_path, noise_params)
+    # model.load_model(model_path)
 
     model.do_crf = crf
 
@@ -71,7 +105,10 @@ def main_loop(
 
     vals = []
     crf_suffix = "crf" if crf else ""
-    save_path = f"{expr_folder}/preds/{model_name}_no_tr_{crf_suffix}"
+    sigma_as_int = int(np.sqrt(noise_params[1]) * 255)
+    save_path = (
+        f"{expr_folder}/preds/{model_name}_trained_sigma_{sigma_as_int}_{crf_suffix}"
+    )
     try:
         mkdir(save_path)
     except FileExistsError:
@@ -88,6 +125,10 @@ def main_loop(
         )
 
         inp_data = imread(inp_path)
+        _img = Image.fromarray(inp_data)
+        if save:
+            _img.save(f"{save_path}/{f[:-4]}_original.png")
+
         if noise_params != (False, 0):
             inp_data = add_noise(inp_data, noise_params[0], noise_params[1])
         out_data = tiff_to_labels(imread(out_path), default_mapping)
@@ -108,6 +149,8 @@ def main_loop(
 
         if save:
             save_seg(out_seg, f"{save_path}/{f[:-4]}.tiff")  #
+            inp_img.save(f"{save_path}/{f[:-4]}_noisy.png")
+            inp_img.save(f"{save_path}/{f[:-4]}_noisy.tiff")
             # save_seg(out_data, "gt_foo.tiff")
 
         val = jac(pred_tensor, gt_tensor)
@@ -115,10 +158,171 @@ def main_loop(
     print(f"{prefix}: {jac.compute()} +/- {np.std(vals)}")
 
 
+noise_vals = [
+    (5 / 255.0) ** 2,
+    (15 / 255.0) ** 2,
+    (25 / 255.0) ** 2,
+    (35 / 255.0) ** 2,
+    (50 / 255.0) ** 2,
+]  # TODO: make this [5, 15, 25, 35, 50]
+noise_params = [(True, n) for n in noise_vals]
+
+for n in noise_params:
+    sigma_as_int = int(np.sqrt(n[1]) * 255)
+    for classifier, model in zip(["lr", "rf"], ["hybrid", "classical"]):
+        model_path = path = (
+            f"/home/ronan/HR-Dv2/experiments/weakly_supervised/models/trained/cells_{model}_{classifier}.skops"
+        )
+        main_loop(
+            None,
+            model,
+            f"{model}, {sigma_as_int}: ",
+            crf=False,
+            noise_params=n,
+            save=True,
+        )
+
+"""09/01/24 - noise added pre training
+hybrid, 5:  [0/134]
+hybrid, 5:  [30/134]
+hybrid, 5:  [60/134]
+hybrid, 5:  [90/134]
+hybrid, 5:  [120/134]
+hybrid, 5: : 0.7844821214675903 +/- 0.12220726555212236
+classical, 5:  [0/134]
+classical, 5:  [30/134]
+classical, 5:  [60/134]
+classical, 5:  [90/134]
+classical, 5:  [120/134]
+classical, 5: : 0.42187780141830444 +/- 0.08697572240576867
+Using cache found in /home/ronan/.cache/torch/hub/facebookresearch_dinov2_main
+hybrid, 15:  [0/134]
+hybrid, 15:  [30/134]
+hybrid, 15:  [60/134]
+hybrid, 15:  [90/134]
+hybrid, 15:  [120/134]
+hybrid, 15: : 0.7226157784461975 +/- 0.1286825098897877
+classical, 15:  [0/134]
+classical, 15:  [30/134]
+classical, 15:  [60/134]
+classical, 15:  [90/134]
+classical, 15:  [120/134]
+classical, 15: : 0.41179120540618896 +/- 0.0909931132265899
+Using cache found in /home/ronan/.cache/torch/hub/facebookresearch_dinov2_main
+hybrid, 25:  [0/134]
+hybrid, 25:  [30/134]
+hybrid, 25:  [60/134]
+hybrid, 25:  [90/134]
+hybrid, 25:  [120/134]
+hybrid, 25: : 0.7036707401275635 +/- 0.12247394125064147
+classical, 25:  [0/134]
+classical, 25:  [30/134]
+classical, 25:  [60/134]
+classical, 25:  [90/134]
+classical, 25:  [120/134]
+classical, 25: : 0.4025999903678894 +/- 0.0926154802507494
+Using cache found in /home/ronan/.cache/torch/hub/facebookresearch_dinov2_main
+hybrid, 35:  [0/134]
+hybrid, 35:  [30/134]
+hybrid, 35:  [60/134]
+hybrid, 35:  [90/134]
+hybrid, 35:  [120/134]
+hybrid, 35: : 0.6369315981864929 +/- 0.11009975084326806
+classical, 35:  [0/134]
+classical, 35:  [30/134]
+classical, 35:  [60/134]
+classical, 35:  [90/134]
+classical, 35:  [120/134]
+classical, 35: : 0.3873019516468048 +/- 0.09258056409152324
+Using cache found in /home/ronan/.cache/torch/hub/facebookresearch_dinov2_main
+hybrid, 50:  [0/134]
+hybrid, 50:  [30/134]
+hybrid, 50:  [60/134]
+hybrid, 50:  [90/134]
+hybrid, 50:  [120/134]
+hybrid, 50: : 0.5671814680099487 +/- 0.09771174813894262
+classical, 50:  [0/134]
+classical, 50:  [30/134]
+classical, 50:  [60/134]
+classical, 50:  [90/134]
+classical, 50:  [120/134]
+classical, 50: : 0.35556113719940186 +/- 0.08586171984844478
+"""
+
+"""08/01/24 - noise added post training
+hybrid, 5:  [0/134]
+hybrid, 5:  [30/134]
+hybrid, 5:  [60/134]
+hybrid, 5:  [90/134]
+hybrid, 5:  [120/134]
+hybrid, 5: : 0.8260219097137451 +/- 0.12468382018703678
+classical, 5:  [0/134]
+classical, 5:  [30/134]
+classical, 5:  [60/134]
+classical, 5:  [90/134]
+classical, 5:  [120/134]
+classical, 5: : 0.35158759355545044 +/- 0.08334221992583207
+Using cache found in /home/ronan/.cache/torch/hub/facebookresearch_dinov2_main
+hybrid, 15:  [0/134]
+^[[B^[[B^[[B^[[A^[[A^[[A^[[A^[[A^[[A^[[A^[[A^[[A^[[A^[[A^[[A^[[A^[[B^[[B^[[B^[[B^[[Bhybrid, 15:  [30/134]
+hybrid, 15:  [60/134]
+hybrid, 15:  [90/134]
+hybrid, 15:  [120/134]
+hybrid, 15: : 0.823088526725769 +/- 0.12553247810281384
+classical, 15:  [0/134]
+classical, 15:  [30/134]
+classical, 15:  [60/134]
+classical, 15:  [90/134]
+classical, 15:  [120/134]
+classical, 15: : 0.31037890911102295 +/- 0.07763308792625337
+Using cache found in /home/ronan/.cache/torch/hub/facebookresearch_dinov2_main
+hybrid, 25:  [0/134]
+hybrid, 25:  [30/134]
+hybrid, 25:  [60/134]
+hybrid, 25:  [90/134]
+hybrid, 25:  [120/134]
+hybrid, 25: : 0.8160759210586548 +/- 0.12619401120384657
+classical, 25:  [0/134]
+classical, 25:  [30/134]
+classical, 25:  [60/134]
+classical, 25:  [90/134]
+classical, 25:  [120/134]
+classical, 25: : 0.270906537771225 +/- 0.07388710948413055
+Using cache found in /home/ronan/.cache/torch/hub/facebookresearch_dinov2_main
+hybrid, 35:  [0/134]
+hybrid, 35:  [30/134]
+hybrid, 35:  [60/134]
+hybrid, 35:  [90/134]
+hybrid, 35:  [120/134]
+hybrid, 35: : 0.8004006147384644 +/- 0.12499000233896795
+classical, 35:  [0/134]
+classical, 35:  [30/134]
+classical, 35:  [60/134]
+classical, 35:  [90/134]
+classical, 35:  [120/134]
+classical, 35: : 0.24631565809249878 +/- 0.07246509750553125
+Using cache found in /home/ronan/.cache/torch/hub/facebookresearch_dinov2_main
+hybrid, 50:  [0/134]
+hybrid, 50:  [30/134]
+hybrid, 50:  [60/134]
+hybrid, 50:  [90/134]
+hybrid, 50:  [120/134]
+hybrid, 50: : 0.7608844637870789 +/- 0.12502064075642652
+classical, 50:  [0/134]
+classical, 50:  [30/134]
+classical, 50:  [60/134]
+classical, 50:  [90/134]
+classical, 50:  [120/134]
+classical, 50: : 0.21933311223983765 +/- 0.06897458586880609
+"""
+
+"""
 name = "DINO-S-8"
 do_crf = False
 path = f"/home/ronan/HR-Dv2/experiments/weakly_supervised/models/trained/cells_dino_lr.skops"
 main_loop(path, name, f"{name}, crf: {do_crf}", True, do_crf)
+"""
+
 
 """
 MAIN EXPERIMENT LOOP
