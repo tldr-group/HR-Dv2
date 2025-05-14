@@ -36,9 +36,7 @@ RLS = ResizeLongestSide(518, True)
 RLS_no_norm = ResizeLongestSide(518, False)
 
 if __name__ == "__main__":
-    state = torch.load(
-        "notebooks/figures/fig_data/dinov2_vits14_ade20k_linear_head.pth"
-    )
+    state = torch.load("notebooks/figures/fig_data/dinov2_vits14_ade20k_linear_head.pth")
     cmap = state["meta"]["PALETTE"]
     print(state["meta"])
 
@@ -63,18 +61,17 @@ if __name__ == "__main__":
 
     jac = JaccardIndex(num_classes=150, task="multiclass", ignore_index=-1).cuda()
     backbone_name = "dinov2_vits14"
-    net = HighResDV2(
-        backbone_name, 4, dtype=torch.float16
-    )  # dino_vits8 #dinov2_vits14_reg
-    # net.interpolation_mode = "bilinear"
-    net.interpolation_mode = "nearest-exact"
+    net = HighResDV2(backbone_name, 4, dtype=torch.float16)  # dino_vits8 #dinov2_vits14_reg
+    net = HighResDV2(backbone_name, 14, dtype=torch.float16)  # dino_vits8 #dinov2_vits14_reg
+    net.interpolation_mode = "bilinear"
+    # net.interpolation_mode = "nearest-exact"
     net.eval()
     net.cuda()
 
-    fwd_shift, inv_shift = tr.get_shift_transforms([1, 2], "Moore")
-    fwd_flip, inv_flip = tr.get_flip_transforms()
-    fwd, inv = tr.combine_transforms(fwd_shift, fwd_flip, inv_shift, inv_flip)
-    net.set_transforms(fwd_shift, inv_shift)
+    # fwd_shift, inv_shift = tr.get_shift_transforms([1, 2], "Moore")
+    # fwd_flip, inv_flip = tr.get_flip_transforms()
+    # fwd, inv = tr.combine_transforms(fwd_shift, fwd_flip, inv_shift, inv_flip)
+    # net.set_transforms(fwd_shift, inv_shift)
 
     jbu = torch.hub.load("mhamilton723/FeatUp", "dinov2", use_norm=False)
     jbu.eval()
@@ -135,8 +132,8 @@ if __name__ == "__main__":
                     last10x,
                     last10y,
                     last10y_pred,
-                    f"ours {i}",
-                    f"{CWD}/experiments/semantic_seg/ade_out/jbu/{n_val}.png",
+                    f"dv2 bilinear {i}",
+                    f"{CWD}/experiments/semantic_seg/ade_out/dv2_bilinear/{n_val}.png",
                     voc_cmap,
                 )
                 print(f"[{i} / {len(index['filename'])}]: {jac.compute()}")

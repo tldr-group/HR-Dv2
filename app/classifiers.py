@@ -23,9 +23,7 @@ from typing import Literal
 Transforms = Literal["shift", "flip", "both", None]
 
 
-def flatten_mask_training_data(
-    feature_stack: np.ndarray, labels: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
+def flatten_mask_training_data(feature_stack: np.ndarray, labels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Given $feature_stack and $labels, flatten both and reshape accordingly. Add a class offset if using XGB gpu."""
     h, w, feat = feature_stack.shape
     flat_labels = labels.reshape((h * w))
@@ -42,20 +40,16 @@ class Model:
         self.send_queue = send_queue
         self.recv_queue = recv_queue
 
-        self.classifier: LogisticRegression | RandomForestClassifier = (
-            LogisticRegression(
-                "l2",
-                n_jobs=12,
-                max_iter=1000,
-                warm_start=False,
-                class_weight="balanced",
-            )
+        self.classifier: LogisticRegression | RandomForestClassifier = LogisticRegression(
+            "l2",
+            n_jobs=12,
+            max_iter=1000,
+            warm_start=False,
+            class_weight="balanced",
         )
         self.do_crf: bool = True
 
-    def get_features(
-        self, images: list[Image.Image], inds: list[int], send: bool = True
-    ) -> list[np.ndarray]:
+    def get_features(self, images: list[Image.Image], inds: list[int], send: bool = True) -> list[np.ndarray]:
         features: list[np.ndarray] = []
         for img, i in zip(images, inds):
             feats = self.img_to_features(img)
@@ -69,9 +63,7 @@ class Model:
         feats = np.zeros((img.height, img.width, 384), dtype=np.float16)
         return feats
 
-    def get_training_data(
-        self, features: list[np.ndarray], labels: list[np.ndarray]
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def get_training_data(self, features: list[np.ndarray], labels: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
         init = False
         for label, feat in zip(labels, features):
             if init == False:
@@ -85,9 +77,7 @@ class Model:
                 all_target_data = np.concatenate((all_target_data, target_data), axis=0)
         return all_fit_data, all_target_data
 
-    def train(
-        self, features: list[np.ndarray], labels: list[np.ndarray], send: bool = True
-    ) -> None:
+    def train(self, features: list[np.ndarray], labels: list[np.ndarray], send: bool = True) -> None:
         fit_data, target_data = self.get_training_data(features, labels)
         self.classifier.fit(fit_data, target_data)
         if send:
@@ -146,6 +136,7 @@ class DeepFeaturesModel(Model):
         recv_queue: Queue,
         model_name: str,
         trs: Transforms = None,
+        bilinear: bool = False,
     ) -> None:
         super().__init__(send_queue, recv_queue)
 
@@ -167,7 +158,13 @@ class DeepFeaturesModel(Model):
             fwd, inv = [], []
 
         self.net.set_transforms(fwd, inv)
-        # self.net.set_transforms([], [])
+
+        if bilinear:
+            self.net = HighResDV2(model_name, 14, pca_dim=-1, dtype=16)
+            self.net.interpolation_mode = "bilinear"
+            self.net.cuda()
+            self.net.eval()
+            self.net.set_transforms([], [])
 
     def img_to_features(self, img: Image.Image) -> np.ndarray:
         rgb_pil_img = img.convert("RGB")
@@ -218,7 +215,6 @@ class FeatUp(DeepFeaturesModel):
 
 
 class Hybrid(DeepFeaturesModel):
-
     def __init__(
         self,
         send_queue: Queue,
@@ -275,5 +271,7 @@ def get_featuriser_classifier(
         # is the problem the Rf or the weka?
         # crf really does kill the small phases (i.e organelles)
         return Hybrid(send_queue, recv_queue, "dinov2_vits14_reg", trs)
+    elif name == "bilinear":
+        return DeepFeaturesModel(send_queue, recv_queue, "dinov2_vits14_reg", trs, bilinear=True)
     else:
         return WekaFeaturesModel(send_queue, recv_queue)

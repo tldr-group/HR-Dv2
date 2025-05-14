@@ -5,9 +5,9 @@ from tifffile import imread, imwrite
 from PIL import Image
 import numpy as np
 
-np.random.seed(1001)
-
 import torch
+
+
 from torchmetrics.classification.jaccard import JaccardIndex
 from torch.nn.functional import interpolate
 
@@ -21,6 +21,9 @@ from classifiers import (
 from data_model import resize_longest_side
 
 from skimage.util import random_noise
+
+np.random.seed(1001)
+torch.manual_seed(1001)
 
 
 default_mapping = [(255, 0), (170, 1), (85, 2)]
@@ -41,9 +44,7 @@ def save_seg(seg: np.ndarray, fname: str):
     imwrite(fname, rescaled.astype(np.uint8), photometric="minisblack")
 
 
-def add_noise(
-    input_arr: np.ndarray, possion: bool = True, gauss_level: float = 0
-) -> np.ndarray:
+def add_noise(input_arr: np.ndarray, possion: bool = True, gauss_level: float = 0) -> np.ndarray:
     result = input_arr / 255.0
     if possion:
         result = random_noise(result, mode="poisson", clip=True)
@@ -53,9 +54,7 @@ def add_noise(
     return result
 
 
-def load_model_or_train_with_noise(
-    model: Model, model_path: str | None, noise_params: tuple[bool, float] | None
-):
+def load_model_or_train_with_noise(model: Model, model_path: str | None, noise_params: tuple[bool, float] | None):
     if model_path is not None:
         model.load_model(model_path)
         return
@@ -64,9 +63,7 @@ def load_model_or_train_with_noise(
     train_data: np.ndarray = imread(
         "/home/ronan/HR-Dv2/experiments/weakly_supervised/training_data/train_stack_small.tif"
     )
-    labels: np.ndarray = imread(
-        "/home/ronan/HR-Dv2/experiments/weakly_supervised/training_data/wss_train_labels.tiff"
-    )
+    labels: np.ndarray = imread("/home/ronan/HR-Dv2/experiments/weakly_supervised/training_data/wss_train_labels.tiff")
 
     feat_list: list[np.ndarray] = []
     label_list: list[np.ndarray] = []
@@ -106,9 +103,7 @@ def main_loop(
     vals = []
     crf_suffix = "crf" if crf else ""
     sigma_as_int = int(np.sqrt(noise_params[1]) * 255)
-    save_path = (
-        f"{expr_folder}/preds/{model_name}_trained_sigma_{sigma_as_int}_{crf_suffix}"
-    )
+    save_path = f"{expr_folder}/preds/{model_name}_trained_sigma_{sigma_as_int}_{crf_suffix}"
     try:
         mkdir(save_path)
     except FileExistsError:
@@ -120,9 +115,7 @@ def main_loop(
         if i % 30 == 0:
             print(f"{prefix} [{i}/{n_data}]")
         inp_path = join(expr_folder, "data", f)
-        out_path = join(
-            expr_folder, "masks", f"{f[:-4]}.tif_segmentation.tifnomalized.tif"
-        )
+        out_path = join(expr_folder, "masks_resized", f"{f[:-4]}.tif_segmentation.tifnomalized.tif")
 
         inp_data = imread(inp_path)
         _img = Image.fromarray(inp_data)
@@ -140,10 +133,8 @@ def main_loop(
         out_segs = model.segment([features], [inp_img], [0], False)
         out_seg = out_segs[0] - 1
 
-        gt_tensor = torch.tensor(out_data, dtype=torch.float32)
-        gt_tensor = interpolate(
-            gt_tensor.unsqueeze(0).unsqueeze(0), (L, L), mode="nearest-exact"
-        )
+        gt_tensor = torch.tensor(out_data, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+        # gt_tensor = interpolate(gt_tensor.unsqueeze(0).unsqueeze(0), (L, L), mode="nearest-exact")
         gt_tensor = gt_tensor.squeeze(0).to(torch.int32)
         pred_tensor = torch.tensor(out_seg, dtype=torch.int32).unsqueeze(0)
 
@@ -158,29 +149,32 @@ def main_loop(
     print(f"{prefix}: {jac.compute()} +/- {np.std(vals)}")
 
 
-noise_vals = [
-    (5 / 255.0) ** 2,
-    (15 / 255.0) ** 2,
-    (25 / 255.0) ** 2,
-    (35 / 255.0) ** 2,
-    (50 / 255.0) ** 2,
-]  # TODO: make this [5, 15, 25, 35, 50]
-noise_params = [(True, n) for n in noise_vals]
+main_loop(None, "bilinear", "", True, True)
 
-for n in noise_params:
-    sigma_as_int = int(np.sqrt(n[1]) * 255)
-    for classifier, model in zip(["lr", "rf"], ["hybrid", "classical"]):
-        model_path = path = (
-            f"/home/ronan/HR-Dv2/experiments/weakly_supervised/models/trained/cells_{model}_{classifier}.skops"
-        )
-        main_loop(
-            None,
-            model,
-            f"{model}, {sigma_as_int}: ",
-            crf=False,
-            noise_params=n,
-            save=True,
-        )
+
+# noise_vals = [
+#     (5 / 255.0) ** 2,
+#     (15 / 255.0) ** 2,
+#     (25 / 255.0) ** 2,
+#     (35 / 255.0) ** 2,
+#     (50 / 255.0) ** 2,
+# ]  # TODO: make this [5, 15, 25, 35, 50]
+# noise_params = [(True, n) for n in noise_vals]
+
+# for n in noise_params:
+#     sigma_as_int = int(np.sqrt(n[1]) * 255)
+#     for classifier, model in zip(["lr", "rf"], ["hybrid", "classical"]):
+#         model_path = path = (
+#             f"/home/ronan/HR-Dv2/experiments/weakly_supervised/models/trained/cells_{model}_{classifier}.skops"
+#         )
+#         main_loop(
+#             None,
+#             model,
+#             f"{model}, {sigma_as_int}: ",
+#             crf=False,
+#             noise_params=n,
+#             save=True,
+#         )
 
 
 """

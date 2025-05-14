@@ -35,18 +35,14 @@ class ResizeLongestSide:
     def __init__(self, target_length: int, norm: bool = False) -> None:
         self.target_length = target_length
         self.norm = norm
-        self.normalize = Normalize(
-            mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)
-        )
+        self.normalize = Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
         self.to_tensor = ToTensor()
 
     def apply_image(self, image: np.ndarray) -> np.ndarray:
         """
         Expects a numpy array with shape HxWxC in uint8 format.
         """
-        target_size = self.get_preprocess_shape(
-            image.shape[0], image.shape[1], self.target_length
-        )
+        target_size = self.get_preprocess_shape(image.shape[0], image.shape[1], self.target_length)
         return np.array(resize(to_pil_image(image), target_size))
 
     def apply_image_torch(self, image: torch.Tensor) -> torch.Tensor:
@@ -56,18 +52,12 @@ class ResizeLongestSide:
         the transformation expected by the model.
         """
         # Expects an image in BCHW format. May not exactly match apply_image.
-        target_size = self.get_preprocess_shape(
-            image.shape[2], image.shape[3], self.target_length
-        )
-        return F.interpolate(
-            image, target_size, mode="bilinear", align_corners=False, antialias=False
-        )
+        target_size = self.get_preprocess_shape(image.shape[2], image.shape[3], self.target_length)
+        return F.interpolate(image, target_size, mode="bilinear", align_corners=False, antialias=False)
 
     def __call__(self, x: Image.Image) -> torch.Tensor:
         arr = np.asarray(x)
-        target_size = self.get_preprocess_shape(
-            arr.shape[0], arr.shape[1], self.target_length
-        )
+        target_size = self.get_preprocess_shape(arr.shape[0], arr.shape[1], self.target_length)
         if self.norm:
             tensor = self.to_tensor(x)
         else:
@@ -80,9 +70,7 @@ class ResizeLongestSide:
         return resized
 
     @staticmethod
-    def get_preprocess_shape(
-        oldh: int, oldw: int, long_side_length: int, patch_size: int = 14
-    ) -> tuple[int, int]:
+    def get_preprocess_shape(oldh: int, oldw: int, long_side_length: int, patch_size: int = 14) -> tuple[int, int]:
         """
         Compute the output size given input size and target long side length.
         """
@@ -203,17 +191,15 @@ inp_transform, targ_transform = ResizeLongestSide(518, True), ResizeLongestSide(
 if __name__ == "__main__":
     jac = JaccardIndex(num_classes=21, task="multiclass", ignore_index=-1).cuda()
     backbone_name = "dinov2_vits14"
-    net = HighResDV2(
-        backbone_name, 4, dtype=torch.float16
-    )  # dino_vits8 #dinov2_vits14_reg
-    # net.interpolation_mode = "bilinear"
-    net.interpolation_mode = "nearest-exact"
+    net = HighResDV2(backbone_name, 4, dtype=torch.float16)  # dino_vits8 #dinov2_vits14_reg
+    net.interpolation_mode = "bilinear"
+    # net.interpolation_mode = "nearest-exact"
     net.eval()
     net.cuda()
 
-    fwd_shift, inv_shift = tr.get_shift_transforms([1, 2], "Moore")
-    fwd_flip, inv_flip = tr.get_flip_transforms()
-    fwd, inv = tr.combine_transforms(fwd_shift, fwd_flip, inv_shift, inv_flip)
+    fwd_shift, inv_shift = tr.get_shift_transforms([1, 2], "Neumann")
+    # fwd_flip, inv_flip = tr.get_flip_transforms()
+    # fwd, inv = tr.combine_transforms(fwd_shift, fwd_flip, inv_shift, inv_flip)
     net.set_transforms(fwd_shift, inv_shift)
 
     jbu = torch.hub.load("mhamilton723/FeatUp", "dinov2", use_norm=False)
@@ -222,9 +208,7 @@ if __name__ == "__main__":
     pass
 
     model = LinearHead(21)
-    cfg = torch.load(
-        f"{CWD}/notebooks/figures/fig_data/dinov2_vits14_voc2012_linear_head.pth"
-    )
+    cfg = torch.load(f"{CWD}/notebooks/figures/fig_data/dinov2_vits14_voc2012_linear_head.pth")
     model = apply_state_dict(cfg, model)
 
     dataset = torchvision.datasets.VOCSegmentation(
@@ -243,6 +227,7 @@ if __name__ == "__main__":
         # x = x.unsqueeze(0)
 
         feats = jbu.forward(x.unsqueeze(0))
+        # feats = net.forward(x)
         feats = F.interpolate(feats, (H, W))
         logits = model(feats)
 
@@ -262,13 +247,14 @@ if __name__ == "__main__":
             last10y_pred.pop(0)
 
         if i % 50 == 0 and i > 20:
-            visualise_batch(
-                last10x,
-                last10y,
-                last10y_pred,
-                f"ours {i}",
-                f"{CWD}/experiments/semantic_seg/voc_out/jbu/{i}.png",
-            )
+            # visualise_batch(
+            #     last10x,
+            #     last10y,
+            #     last10y_pred,
+            #     f"ours {i}",
+            #     f"{CWD}/experiments/semantic_seg/voc_out/dv2_bilinear/{i}.png",
+            #     cmap,
+            # )
             print(f"[{i} / {len(dataset)}]: {jac.compute()}")
 
 
