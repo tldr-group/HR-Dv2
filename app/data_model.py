@@ -57,32 +57,22 @@ def create_label_mask(
     """Given a polygonal region, create a masked array filled with the class value by drawing polygon onto ImageDraw and converting to numpy."""
     temp_img = Image.new("L", (img_w, img_h), 0)
     if label_type in ["Polygon", "SAM"]:
-        ImageDraw.Draw(temp_img).polygon(
-            arr_label_region, outline=label_val, fill=label_val
-        )
+        ImageDraw.Draw(temp_img).polygon(arr_label_region, outline=label_val, fill=label_val)
     elif label_type == "Rectangle":
         arr_label_region = cast(Rectangle, arr_label_region)
-        ImageDraw.Draw(temp_img).rectangle(
-            arr_label_region, outline=label_val, fill=label_val
-        )
+        ImageDraw.Draw(temp_img).rectangle(arr_label_region, outline=label_val, fill=label_val)
     elif label_type == "Circle":
-        ImageDraw.Draw(temp_img).ellipse(
-            arr_label_region, outline=label_val, fill=label_val
-        )
+        ImageDraw.Draw(temp_img).ellipse(arr_label_region, outline=label_val, fill=label_val)
     elif label_type in ["Brush", "Eraser"]:
         # if brush thin then draw width 1 lines connecting points
         if int(label_width) == 1:
-            ImageDraw.Draw(temp_img).line(
-                arr_label_region, fill=label_val, width=int(label_width)
-            )
+            ImageDraw.Draw(temp_img).line(arr_label_region, fill=label_val, width=int(label_width))
         else:  # if thick, draw circle @ every point (slower)
             arr_label_region = cast(Polygon, arr_label_region)
             for x, y in arr_label_region:
                 top_left = (x - label_width, y - label_width)
                 bottom_right = (x + label_width, y + label_width)
-                ImageDraw.Draw(temp_img).ellipse(
-                    [top_left, bottom_right], fill=label_val
-                )
+                ImageDraw.Draw(temp_img).ellipse([top_left, bottom_right], fill=label_val)
     else:
         raise Exception(f"Invalid labeling type - {label_type}")
     mask = np.array(temp_img)
@@ -101,9 +91,7 @@ def resize_longest_side(img: Image.Image, l: int, patch_size: int = 14) -> Image
     return img.resize((neww, newh))
 
 
-def get_training_data(
-    feature_stack: np.ndarray, labels: np.ndarray, method="cpu"
-) -> Tuple[np.ndarray, np.ndarray]:
+def get_training_data(feature_stack: np.ndarray, labels: np.ndarray, method="cpu") -> Tuple[np.ndarray, np.ndarray]:
     """Given $feature_stack and $labels, flatten both and reshape accordingly. Add a class offset if using XGB gpu."""
     h, w, feat = feature_stack.shape
     flat_labels = labels.reshape((h * w))
@@ -179,15 +167,11 @@ class Piece:
 
     def add_label_to_mask(self, label: Label) -> None:
         """Given a label object, add it to $mask which is an arr the same size as $arr but 0 for unlabelled regions and $classvalue for labelled regions."""
-        added_label_arr = self._label_to_mask_arr(
-            label.points, label.class_value, label.label_type, label.width
-        )
+        added_label_arr = self._label_to_mask_arr(label.points, label.class_value, label.label_type, label.width)
         # add check here if erasing - maybe abstract this update into a function
         # everywhere that added_label_arr is set and isn't already labelled, set labels_arr to that value
         if label.class_value == 255:  # erasing
-            self.labels_arr = np.where(
-                added_label_arr == 255, 0, self.labels_arr
-            ).astype(np.uint8)
+            self.labels_arr = np.where(added_label_arr == 255, 0, self.labels_arr).astype(np.uint8)
         else:
             self.labels_arr = np.where(
                 added_label_arr > 0,
@@ -234,17 +218,13 @@ class DataModel:
 
         self.worker: Process
 
-        self.selected_model: Literal["DINOv2-S-14", "DINO-S-8", "RandomForest"] = (
-            "DINOv2-S-14"
-        )
+        self.selected_model: Literal["DINOv2-S-14", "DINO-S-8", "RandomForest"] = "DINOv2-S-14"
 
         self.get_model(self.selected_model)
 
     def get_model(self, model_name: str) -> None:
         # our classifier's queues are swapped relative to data model
-        self.model = get_featuriser_classifier(
-            model_name, self.recv_queue, self.send_queue
-        )
+        self.model = get_featuriser_classifier(model_name, self.recv_queue, self.send_queue)
         if model_name != self.selected_model:
             self.selected_model = model_name  # type: ignore
             self.get_features()
@@ -285,7 +265,7 @@ class DataModel:
         seg_arr = self.current_piece.seg_arr.astype(np.uint8)
         max_class = np.amax(seg_arr)
         delta = floor(255 / (max_class))
-        rescaled = ((seg_arr * delta)).astype(np.uint8)
+        rescaled = (seg_arr * delta).astype(np.uint8)
 
         imwrite(file_obj.name, rescaled, photometric="minisblack")
 

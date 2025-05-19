@@ -197,3 +197,4 @@ experiments/*.zip
 *.zip
 zipignore.txt
 *masks_resized*
+notebooks/figures/revisions/data
