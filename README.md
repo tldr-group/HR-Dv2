@@ -56,6 +56,14 @@ pip install git+https://github.com/lucasb-eyer/pydensecrf.git
 pip install -e .
 ```
 
+Then install the GUI theme:
+```bash
+git clone https://github.com/rdbende/Azure-ttk-theme
+mkdir -p app/tk_themes
+cp -a Azure-ttk-theme/theme/. app/gui_elements/tk_themes/theme
+cp Azure-ttk-theme/azure.tcl app/gui_elements/azure.tcl
+```
+
 To compare with [FeatUp](https://github.com/mhamilton723/FeatUp), a different feature upsampler:
 ```bash
 pip install git+https://github.com/mhamilton723/FeatUp
@@ -65,12 +73,12 @@ pip install git+https://github.com/mhamilton723/FeatUp
 ### Windows
 
 ```powershell
-cd .\HR-Dv2\
+cd ".\HR-Dv2\"
 git clone https://github.com/facebookresearch/dinov2
 # we need to remove 'extra-index' from pip reqs in dinov2 (lines 21 & 22)
 $lines = Get-Content .\dinov2\requirements.txt
-$lines[0..19] | Set-Content | Set-Content .\dinov2\requirements.txt
-conda env create -f .\dinov2\conda.yaml
+$lines[0..19] | Set-Content | Set-Content ".\dinov2\conda.yaml"
+conda env create -f ".\dinov2\conda.yaml"
 conda activate dinov2
 conda install conda-forge::pydensecrf
 pip install -e .
@@ -78,4 +86,10 @@ pip install -e .
 conda install --force-reinstall "numpy<2" scipy matplotlib
 # normally trition installed as part of dinov2 install on linux
 pip install triton-windows
+
+# download the app tkinter theme
+git clone https://github.com/rdbende/Azure-ttk-theme
+mkdir "app\tk_themes\"
+Copy-Item -Path ".\Azure-ttk-theme\theme" -Destination "D:\app\gui_elements\tk_themes\theme" -Recurse
+Copy-Item -Path ".\Azure-ttk-theme\azure.tcl" -Destination "D:\app\gui_elements\tk_themes\azure.tcl"
 ```
