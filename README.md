@@ -36,23 +36,46 @@ Tkinter theme from user [rdbende on github](https://github.com/rdbende/Azure-ttk
 
 Requires Python 3.10 or greater.
 
-```
+
+### Linux
+```bash
 cd HR-Dv2/
 git clone https://github.com/facebookresearch/dinov2
 pip install -r dinov2/requirements.txt -r dinov2/requirements-dev.txt
+pip install git+https://github.com/lucasb-eyer/pydensecrf.git
 pip install -e .
 ```
 
 To install with conda (recommended, gets pytorch sorted):
-```
+```bash
 cd HR-Dv2/
 git clone https://github.com/facebookresearch/dinov2
 conda env create -f dinov2/conda.yaml
 conda activate dinov2
+pip install git+https://github.com/lucasb-eyer/pydensecrf.git
 pip install -e .
 ```
 
 To compare with [FeatUp](https://github.com/mhamilton723/FeatUp), a different feature upsampler:
-```
+```bash
 pip install git+https://github.com/mhamilton723/FeatUp
+```
+
+
+### Windows
+
+```powershell
+cd .\HR-Dv2\
+git clone https://github.com/facebookresearch/dinov2
+# we need to remove 'extra-index' from pip reqs in dinov2 (lines 21 & 22)
+$lines = Get-Content .\dinov2\requirements.txt
+$lines[0..19] | Set-Content | Set-Content .\dinov2\requirements.txt
+conda env create -f .\dinov2\conda.yaml
+conda activate dinov2
+conda install conda-forge::pydensecrf
+pip install -e .
+# We might need to force-reinstall numpy scipy and matplotlib
+conda install --force-reinstall "numpy<2" scipy matplotlib
+# normally trition installed as part of dinov2 install on linux
+pip install triton-windows
 ```

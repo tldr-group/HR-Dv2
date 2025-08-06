@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "hr_dv2"
 version = "0.0.1"
 authors = [
-  { name="Anonymous", email="hello@gmail.com"},
+  { name="Ronan Docherty", email="ronan.docherty18@ic.ac.uk"},
 ]
 description = "Module for extracting high-resolution features from the DINOv2 model."
 readme = "README.md"
@@ -19,8 +19,7 @@ classifiers = [
 dynamic = ["dependencies"]
 
 [project.urls]
-"Homepage" = ""
-"Bug Tracker" = ""
+"Homepage" = "https://github.com/tldr-group/HR-Dv2"
 
 
 [tool.setuptools.dynamic]
