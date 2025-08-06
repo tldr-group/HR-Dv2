@@ -33,7 +33,7 @@ def get_classifier(
         return RandomForestClassifier(
             n_estimators=200,
             max_features=2,
-            max_depth=10,
+            max_depth=None,
             n_jobs=12,
             warm_start=False,
             class_weight="balanced",

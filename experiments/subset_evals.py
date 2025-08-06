@@ -52,8 +52,8 @@ def get_net(json: dict) -> nn.Module:
 def object_localize(net: nn.Module, n: int, json: dict, single: bool = False) -> None:
     dataset = Dataset(
         "VOC12",
-        "val",
-        True,
+        "trainval",
+        False,
         tr.to_norm_tensor,
         "experiments/object_localization/",
     )
@@ -91,10 +91,11 @@ if __name__ == "__main__":
         expr_json = load(f)
 
     # json = expr_json["dv2_strict_crf"]
-    json = expr_json["hr_dv2_noshift"]
+    json = expr_json["dv2_no_stride_no_trs"]
+    print(json)
     net = get_net(json)
-    object_segment_dut(net, n_duts, json)
-    # object_localize(net, n_voc7, json, True)
+    # object_segment_dut(net, n_duts, json)
+    object_localize(net, n_voc7, json, True)
     # object_localize(net, 40, json)
 
 

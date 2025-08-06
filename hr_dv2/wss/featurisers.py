@@ -21,7 +21,7 @@ from hr_dv2.wss.features import DEAFAULT_WEKA_FEATURES, multiscale_advanced_feat
 from typing import Literal
 
 Transforms = Literal["shift", "flip", "both", None]
-AllowedFeaturisers = Literal["DINOv2-S-14", "DINO-S-8", "FeatUp", "hybrid", "bilinear", "weka"]
+AllowedFeaturisers = Literal["DINOv2-S-14", "DINO-S-8", "FeatUp", "hybrid", "hybrid_featup", "bilinear", "weka"]
 
 
 def flatten_mask_training_data(feature_stack: np.ndarray, labels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -254,6 +254,33 @@ class Hybrid(DeepFeaturesModel):
         return hybrid_feats
 
 
+class HybridFeatUp(DeepFeaturesModel):
+    def __init__(self, send_queue: Queue, recv_queue: Queue, model_name: str) -> None:
+        super().__init__(send_queue, recv_queue, model_name)
+
+        self.net = torch.hub.load("mhamilton723/FeatUp", "dinov2", use_norm=False)
+        self.net.cuda()
+        self.net.eval()
+
+    def img_to_features(self, img: Image.Image) -> np.ndarray:
+        rgb_pil_img = img.convert("RGB")
+        tensor: torch.Tensor = tr.to_norm_tensor(rgb_pil_img)
+        tensor = tensor.cuda()
+        feats = self.net.forward(tensor.unsqueeze(0))
+        feats = interpolate(feats, (rgb_pil_img.height, rgb_pil_img.width))
+        deep_feats = tr.to_numpy(feats).transpose((1, 2, 0))
+
+        greyscale = img.convert("L")
+        arr = np.array(greyscale)
+        classical_feats = multiscale_advanced_features(arr, DEAFAULT_WEKA_FEATURES)
+        hybrid_feats = np.concatenate((deep_feats, classical_feats), axis=-1)
+        # print(hybrid_feats.shape)
+        # print(self.classifier)
+        hybrid_feats = rescale_pca_img(hybrid_feats)
+
+        return hybrid_feats
+
+
 def get_featuriser_classifier(
     name: AllowedFeaturisers,
     send_queue: Queue,
@@ -268,6 +295,8 @@ def get_featuriser_classifier(
         return FeatUp(send_queue, recv_queue, "dinov2_vits14_reg")
     elif name == "hybrid":
         return Hybrid(send_queue, recv_queue, "dinov2_vits14_reg", trs)
+    elif name == "hybrid_featup":
+        return HybridFeatUp(send_queue, recv_queue, "dinov2_vits14_reg")
     elif name == "bilinear":
         return DeepFeaturesModel(send_queue, recv_queue, "dinov2_vits14_reg", trs, bilinear=True)
     else:
