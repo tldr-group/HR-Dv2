@@ -2,7 +2,6 @@ name: dinov2
 channels:
   - pytorch
   - nvidia
-  - xformers
   - conda-forge
   - defaults
 dependencies:
@@ -11,10 +10,10 @@ dependencies:
   - pytorch::pytorch-cuda=>11.7.0
   - pytorch::torchvision>=0.15.0
   - omegaconf
-  - torchmetrics?=0.10.3
+  - torchmetrics>=0.10.3
   - fvcore
   - iopath
-  - xformers>=0.0.18
+  - conda-forge::xformers
   - conda-forge::pydensecrf
   - pip
   - pip:
