@@ -23,7 +23,7 @@ dynamic = ["dependencies"]
 
 
 [tool.setuptools.dynamic]
-dependencies = {file = ["requirements.txt"]}
+dependencies = []
 
 [tool.setuptools]
 packages = ["hr_dv2"]

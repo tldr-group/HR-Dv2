@@ -1,0 +1,17 @@
+--extra-index-url https://download.pytorch.org/whl/cu117
+torch>=2.0.0
+torchvision>=0.15.0
+omegaconf
+torchmetrics>=0.10.3
+fvcore
+iopath
+xformers>=0.0.18
+submitit
+ipykernel==6.26.0
+matplotlib==3.8.1
+scikit-image==0.22.0
+scikit-learn==1.3.1
+av==10.0.0
+timm
+skops
+pydensecrf@git+https://github.com/lucasb-eyer/pydensecrf.git
