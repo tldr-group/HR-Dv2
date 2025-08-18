@@ -82,6 +82,6 @@ pip install triton-windows
 # download the app tkinter theme
 git clone https://github.com/rdbende/Azure-ttk-theme
 mkdir "app\tk_themes\"
-Copy-Item -Path ".\Azure-ttk-theme\theme" -Destination "D:\app\gui_elements\tk_themes\theme" -Recurse
-Copy-Item -Path ".\Azure-ttk-theme\azure.tcl" -Destination "D:\app\gui_elements\tk_themes\azure.tcl"
+Copy-Item -Path ".\Azure-ttk-theme\theme" -Destination ".\app\gui_elements\tk_themes\theme" -Recurse
+Copy-Item -Path ".\Azure-ttk-theme\azure.tcl" -Destination ".\app\gui_elements\tk_themes\azure.tcl"
 ```
