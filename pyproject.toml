@@ -16,14 +16,9 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-dynamic = ["dependencies"]
 
 [project.urls]
 "Homepage" = "https://github.com/tldr-group/HR-Dv2"
-
-
-[tool.setuptools.dynamic]
-dependencies = []
 
 [tool.setuptools]
 packages = ["hr_dv2"]
