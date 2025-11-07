@@ -382,6 +382,14 @@ class Patch:
         return forward_feats_attn
 
     @staticmethod
+    def _add_new_forward_features_dv3(model: torch.nn.Module) -> Callable:
+        def forward_feats_attn(self, x, masks=None, attn_choice: AttentionOptions = "none"):
+            out_dict = model.forward_features(x)
+            return out_dict
+
+        return forward_feats_attn
+
+    @staticmethod
     def _add_new_forward_features_vit() -> Callable:
         def forward_feats_attn(self, x, masks=None, attn_choice: AttentionOptions = "none"):
             B, nc, w, h = x.shape

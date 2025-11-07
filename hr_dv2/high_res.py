@@ -29,6 +29,7 @@ class HighResDV2(nn.Module):
         pca_dim: int = -1,
         dtype: torch.dtype | int = torch.float32,
         track_grad: bool = False,
+        **kwargs,
     ) -> None:
         super().__init__()
 
@@ -36,6 +37,11 @@ class HighResDV2(nn.Module):
         if "dinov2" in dino_name:
             hub_path = "facebookresearch/dinov2"
             self.dinov2 = torch.hub.load(hub_path, dino_name)
+        elif "dinov3" in dino_name:
+            lib_path = kwargs["lib_path"]
+            chk_path = kwargs["chk_path"]
+            assert (chk_path is not None) and (lib_path is not None), "Must supply a local checkpoint for DINOv3!"
+            self.dinov2 = torch.hub.load(lib_path, "dinov3_vits16plus", source="local", weights=chk_path)
         elif "dino" in dino_name:
             hub_path = "facebookresearch/dino:main"
             self.dinov2 = torch.hub.load(hub_path, dino_name)
@@ -149,11 +155,17 @@ class HighResDV2(nn.Module):
         # hilariously this also works for dino i.e we can patch dino's attn block forward to
         # use the memeory efficienty attn like in dinov2
         attn_block._original_forward = attn_block.forward
-        attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
+        if "dinov3" not in dino_name:
+            attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
+
         if "dinov2" in dino_name:
             final_block.forward = MethodType(Patch._fix_block_forward_dv2(), final_block)  # type: ignore
             dino_model.forward_feats_attn = MethodType(  # type: ignore
                 Patch._add_new_forward_features_dv2(), dino_model
+            )
+        elif "dinov3" in dino_name:
+            dino_model.forward_feats_attn = MethodType(  # type: ignore
+                Patch._add_new_forward_features_dv3(dino_model), dino_model
             )
         elif "dino" in dino_name:
             for i, blk in enumerate(dino_model.blocks):
