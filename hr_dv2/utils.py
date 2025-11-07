@@ -9,9 +9,7 @@ from skimage.morphology import disk
 from typing import Tuple, List
 
 
-def do_single_pca(
-    arr: np.ndarray, n_components: int = 3, n_samples: int = -1
-) -> np.ndarray:
+def do_single_pca(arr: np.ndarray, n_components: int = 3, n_samples: int = -1) -> np.ndarray:
     # arr in shape (n_samples, n_features)
     pca = PCA(n_components=n_components)
     if n_samples > -1:
@@ -74,9 +72,7 @@ def standardise_pca_img(pca_img: np.ndarray) -> np.ndarray:
 
 
 def standardize_img(x: np.ndarray) -> np.ndarray:
-    y = (x - np.mean(x, axis=-1, keepdims=True)) / np.std(
-        x, axis=-1, ddof=0, keepdims=True
-    )
+    y = (x - np.mean(x, axis=-1, keepdims=True)) / np.std(x, axis=-1, ddof=0, keepdims=True)
     return y
 
 
@@ -112,9 +108,7 @@ def entropy_per_area(mask: np.ndarray, entropy_img: np.ndarray) -> float:
     return float(total_entropy / n_fg)
 
 
-def get_best_mask(
-    feat_arr: np.ndarray, grey_img_arr: np.ndarray, k: int = 10
-) -> Tuple[np.ndarray, int]:
+def get_best_mask(feat_arr: np.ndarray, grey_img_arr: np.ndarray, k: int = 10) -> Tuple[np.ndarray, int]:
     h, w = grey_img_arr.shape
     entropy_img = get_entropy_img(grey_img_arr, k)
 

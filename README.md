@@ -49,6 +49,7 @@ To install with conda (recommended, gets pytorch sorted):
 cd HR-Dv2/
 conda env create -f install/conda.yaml
 conda activate dinov2
+pip install xformers>=0.0.18
 pip install -e .
 ```
 
@@ -74,14 +75,12 @@ cd ".\HR-Dv2\"
 conda env create -f ".\install\conda.yaml"
 conda activate dinov2
 pip install -e .
-# We might need to force-reinstall numpy scipy and matplotlib
-conda install --force-reinstall "numpy<2" scipy matplotlib
 # normally trition installed as part of dinov2 install on linux
 pip install triton-windows
 
 # download the app tkinter theme
 git clone https://github.com/rdbende/Azure-ttk-theme
 mkdir "app\tk_themes\"
-Copy-Item -Path ".\Azure-ttk-theme\theme" -Destination "D:\app\gui_elements\tk_themes\theme" -Recurse
-Copy-Item -Path ".\Azure-ttk-theme\azure.tcl" -Destination "D:\app\gui_elements\tk_themes\azure.tcl"
+Copy-Item -Path ".\Azure-ttk-theme\theme" -Destination ".\app\gui_elements\tk_themes\theme" -Recurse
+Copy-Item -Path ".\Azure-ttk-theme\azure.tcl" -Destination ".\app\gui_elements\tk_themes\azure.tcl"
 ```

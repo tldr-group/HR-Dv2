@@ -69,9 +69,7 @@ def do_pca(features: np.ndarray, k: int = 3, standardize: bool = True) -> np.nda
 
     if standardize:
         features = standardize_img(features)
-    pca = PCA(
-        n_components=k, svd_solver="randomized", n_oversamples=5, iterated_power=3
-    )
+    pca = PCA(n_components=k, svd_solver="randomized", n_oversamples=5, iterated_power=3)
     pca.fit(features)
     projection = pca.transform(features)
     return projection
@@ -92,9 +90,7 @@ KERNEL = dcrf.FULL_KERNEL
 default_crf_params = CRFParams()
 
 
-def _get_crf(
-    img_arr: np.ndarray, n_c: int, unary: np.ndarray, crf: CRFParams
-) -> dcrf.DenseCRF2D:
+def _get_crf(img_arr: np.ndarray, n_c: int, unary: np.ndarray, crf: CRFParams) -> dcrf.DenseCRF2D:
     h, w, _ = img_arr.shape
     d = dcrf.DenseCRF2D(w, h, n_c)
     u = np.ascontiguousarray(unary)
@@ -116,9 +112,7 @@ def _get_crf(
     return d
 
 
-def do_crf_from_labels(
-    labels_arr: np.ndarray, img_arr: np.ndarray, n_classes: int, crf: CRFParams
-) -> np.ndarray:
+def do_crf_from_labels(labels_arr: np.ndarray, img_arr: np.ndarray, n_classes: int, crf: CRFParams) -> np.ndarray:
     """Given a multiclass (foreground) segmentation and orignal image arr,
     refine using a conditional random field with set parameters.
 
@@ -134,9 +128,7 @@ def do_crf_from_labels(
     :rtype: np.ndarray
     """
     h, w, c = img_arr.shape
-    unary = unary_from_labels(
-        labels_arr, n_classes, crf.label_confidence, zero_unsure=False
-    )
+    unary = unary_from_labels(labels_arr, n_classes, crf.label_confidence, zero_unsure=False)
     d = _get_crf(img_arr, n_classes, unary, crf)
     Q = d.inference(crf.n_infer)
     crf_seg = np.argmax(Q, axis=0)
@@ -164,9 +156,7 @@ def get_feat_dists_from_centroids(
     return distances, new_centroids
 
 
-def do_crf_from_distances(
-    distances: np.ndarray, img_arr: np.ndarray, n_classes: int, crf: CRFParams
-) -> np.ndarray:
+def do_crf_from_distances(distances: np.ndarray, img_arr: np.ndarray, n_classes: int, crf: CRFParams) -> np.ndarray:
     h, w, c = img_arr.shape
     distances = distances.astype(np.float32)
     unary = np.ascontiguousarray(distances.reshape(n_classes, h * w))
@@ -252,7 +242,7 @@ def fwd_and_cluster(
 
     end = time()
     if verbose:
-        print(f"Finished in {end-start}s")
+        print(f"Finished in {end - start}s")
 
     return labels, centers, features, attention, normed
 
@@ -283,9 +273,7 @@ def semantic_segment(
 
     fg_bg_sims, _ = get_feature_similarities(fg_clusters, bg_clusters)
     sim_cutoff = scale * get_similarity_cutoff(fg_bg_sims)
-    merged_clusters = merge_foreground_clusters(
-        centroids, sim_cutoff, n_classes=n_classes
-    )
+    merged_clusters = merge_foreground_clusters(centroids, sim_cutoff, n_classes=n_classes)
     n_classes = len(np.unique(merged_clusters))
 
     semantic_seg = np.zeros((h, w))
@@ -303,9 +291,7 @@ def semantic_segment(
     return refined, semantic_seg
 
 
-def avg_features_over_labels(
-    features: np.ndarray, labels: np.ndarray
-) -> list[np.ndarray]:
+def avg_features_over_labels(features: np.ndarray, labels: np.ndarray) -> list[np.ndarray]:
     out: list[np.ndarray] = []
     n_clusters = np.amax(labels)
     # print(features.shape, labels.shape)
@@ -318,9 +304,7 @@ def avg_features_over_labels(
     return out
 
 
-def get_attn_density(
-    labels_arr: np.ndarray, attn: np.ndarray
-) -> Tuple[np.ndarray, List[float]]:
+def get_attn_density(labels_arr: np.ndarray, attn: np.ndarray) -> Tuple[np.ndarray, List[float]]:
     """For each cluster, get attention per unit area and return a density arr
     where each entry is the pixel's cluster attention density.
 
@@ -359,9 +343,7 @@ def l2(v1: np.ndarray, v2: np.ndarray) -> np.ndarray:
     return np.sqrt(np.sum((v1 - v2) * (v1 - v2)))
 
 
-def get_feature_similarities(
-    fg_clusters: np.ndarray, bg_clusters: np.ndarray
-) -> Tuple[List[float], List[float]]:
+def get_feature_similarities(fg_clusters: np.ndarray, bg_clusters: np.ndarray) -> Tuple[List[float], List[float]]:
     """Get list of all fg <-> bg and fg <-> fg similarities for merging later. O(n^2).
 
     :param fg_clusters: all foreground cluster centres
@@ -491,9 +473,7 @@ def foreground_segment(
     :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
     """
     h, w, c = img_arr.shape
-    seg, attn, centres, features = cluster(
-        net, img_arr, img_tensor, n_cluster, True, False
-    )
+    seg, attn, centres, features = cluster(net, img_arr, img_tensor, n_cluster, True, False)
     seg = seg.reshape((h, w))
     sum_cls = np.sum(attn, axis=0)
     density_map, densities = get_attn_density(seg, sum_cls)
@@ -537,9 +517,7 @@ def multi_object_foreground_segment(
     :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
     """
     h, w, c = img_arr.shape
-    seg, attn, centers, features = cluster(
-        net, img_arr, img_tensor, n_cluster, True, False
-    )
+    seg, attn, centers, features = cluster(net, img_arr, img_tensor, n_cluster, True, False)
     seg = seg.reshape((h, w))
     sum_cls = np.sum(attn, axis=0)
     density_map, densities = get_attn_density(seg, sum_cls)
@@ -560,12 +538,8 @@ def multi_object_foreground_segment(
         current_class = np.where(seg == val, merged_clusters[i], 0)
         semantic_seg += current_class
 
-    refined = do_crf_from_labels(
-        semantic_seg, img_arr, max(merged_clusters) + 1, crf_params
-    )
-    refined_density_map, refined_densities = get_attn_density(
-        refined.squeeze(-1), sum_cls
-    )
+    refined = do_crf_from_labels(semantic_seg, img_arr, max(merged_clusters) + 1, crf_params)
+    refined_density_map, refined_densities = get_attn_density(refined.squeeze(-1), sum_cls)
     return refined, refined_density_map, refined_densities
 
 
@@ -610,9 +584,7 @@ def get_seg_bboxes(fg_seg: np.ndarray, offsets: Tuple[int, int] = (0, 0)) -> np.
     return bboxes_arr
 
 
-def multi_class_bboxes(
-    multi_seg: np.ndarray, offsets: Tuple[int, int] = (0, 0)
-) -> np.ndarray:
+def multi_class_bboxes(multi_seg: np.ndarray, offsets: Tuple[int, int] = (0, 0)) -> np.ndarray:
     """For a multiclass arr with background 0, get bboxes for each class.
 
     :param multi_seg: multiclass arr shape (h, w)

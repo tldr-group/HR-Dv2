@@ -12,9 +12,7 @@ PartialTrs: TypeAlias = List[partial]
 
 
 # ==================== MODEL TRANSFORMS ====================
-def compute_shift_directions(
-    pattern: Literal["Neumann", "Moore"]
-) -> List[Tuple[int, int]]:
+def compute_shift_directions(pattern: Literal["Neumann", "Moore"]) -> List[Tuple[int, int]]:
     # Precompute neighbourhood shift unit vectors
     shifts = [  # shifts in yx format
         (-1, -1),
@@ -36,9 +34,7 @@ def compute_shift_directions(
     return shift_directions
 
 
-def get_shift_transforms(
-    dists: List[int], pattern: Literal["Neumann", "Moore"]
-) -> Tuple[PartialTrs, PartialTrs]:
+def get_shift_transforms(dists: List[int], pattern: Literal["Neumann", "Moore"]) -> Tuple[PartialTrs, PartialTrs]:
     transforms: PartialTrs = [true_iden_partial]
     inv_transforms: PartialTrs = [true_iden_partial]
     shifts = compute_shift_directions(pattern)
@@ -57,9 +53,7 @@ def get_shift_transforms(
     return transforms, inv_transforms
 
 
-def get_shift_transforms_conv(
-    dists: List[int], pattern: Literal["Neumann", "Moore"]
-) -> Tuple[PartialTrs, PartialTrs]:
+def get_shift_transforms_conv(dists: List[int], pattern: Literal["Neumann", "Moore"]) -> Tuple[PartialTrs, PartialTrs]:
     # don't think convs is causing a speed increase
     transforms: PartialTrs = []
     inv_transforms: PartialTrs = []
@@ -206,9 +200,7 @@ def centre_crop(crop_h: int, crop_w: int) -> transforms.Compose:
     return transform
 
 
-def closest_crop(
-    h: int, w: int, patch_size: int = 14, to_tensor: bool = True
-) -> transforms.Compose:
+def closest_crop(h: int, w: int, patch_size: int = 14, to_tensor: bool = True) -> transforms.Compose:
     # Crop to h,w values that are closest to given patch/stride size
     sub_h: int = h % patch_size
     sub_w: int = w % patch_size
@@ -218,9 +210,7 @@ def closest_crop(
             [
                 transforms.CenterCrop((new_h, new_w)),
                 transforms.ToTensor(),
-                transforms.Normalize(
-                    mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)
-                ),
+                transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
             ]
         )
     else:
@@ -247,9 +237,7 @@ to_img = transforms.ToPILImage()
 to_tensor = transforms.ToTensor()
 
 
-def load_image(
-    path: str, transform: transforms.Compose
-) -> Tuple[torch.Tensor, Image.Image]:
+def load_image(path: str, transform: transforms.Compose) -> Tuple[torch.Tensor, Image.Image]:
     # Load image with PIL, convert to tensor by applying $transform, and invert transform to get display image
     image = Image.open(path).convert("RGB")
     tensor = transform(image)
@@ -263,9 +251,7 @@ def to_numpy(x: torch.Tensor, batched: bool = True) -> np.ndarray:
     return x.detach().cpu().numpy()
 
 
-def flatten(
-    x: torch.Tensor | np.ndarray, h: int, w: int, c: int, convert: bool = False
-) -> np.ndarray:
+def flatten(x: torch.Tensor | np.ndarray, h: int, w: int, c: int, convert: bool = False) -> np.ndarray:
     if type(x) == torch.Tensor:
         x = to_numpy(x)
     x = x.reshape((c, h * w))

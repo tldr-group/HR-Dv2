@@ -12,12 +12,9 @@ from types import MethodType
 from .transform import iden_partial
 
 from functools import partial
-import math
-from typing import List, Tuple, Callable, TypeAlias, Literal
+from typing import List, Tuple, TypeAlias, Literal
 
-Interpolation: TypeAlias = Literal[
-    "nearest", "linear", "bilinear", "bicubic", "trilinear", "area", "nearest-exact"
-]
+Interpolation: TypeAlias = Literal["nearest", "linear", "bilinear", "bicubic", "trilinear", "area", "nearest-exact"]
 AttentionOptions: TypeAlias = Literal["q", "k", "v", "o", "none"]
 
 
@@ -111,9 +108,7 @@ class HighResDV2(nn.Module):
         feat_dim: int = feat_dim_lookup[arch]
         return feat_dim, patch_size
 
-    def set_model_stride(
-        self, dino_model: nn.Module, stride_l: int, verbose: bool = False
-    ) -> None:
+    def set_model_stride(self, dino_model: nn.Module, stride_l: int, verbose: bool = False) -> None:
         """Create new positional encoding interpolation method for $dino_model with
         supplied $stride, and set the stride of the patch embedding projection conv2D
         to $stride.
@@ -153,6 +148,7 @@ class HighResDV2(nn.Module):
         attn_block = final_block.attn  # type: ignore
         # hilariously this also works for dino i.e we can patch dino's attn block forward to
         # use the memeory efficienty attn like in dinov2
+        attn_block._original_forward = attn_block.forward
         attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
         if "dinov2" in dino_name:
             final_block.forward = MethodType(Patch._fix_block_forward_dv2(), final_block)  # type: ignore
@@ -184,19 +180,13 @@ class HighResDV2(nn.Module):
         n_patch_w: int = 1 + (img_w - self.original_patch_size) // stride_l
         return (n_patch_h, n_patch_w)
 
-    def set_transforms(
-        self, transforms: List[partial], inv_transforms: List[partial]
-    ) -> None:
-        assert len(transforms) == len(
-            inv_transforms
-        ), "Each transform must have an inverse!"
+    def set_transforms(self, transforms: List[partial], inv_transforms: List[partial]) -> None:
+        assert len(transforms) == len(inv_transforms), "Each transform must have an inverse!"
         self.transforms = transforms
         self.inverse_transforms = inv_transforms
 
     @torch.no_grad()
-    def get_transformed_input_batch(
-        self, x: torch.Tensor, transforms: List[partial]
-    ) -> torch.Tensor:
+    def get_transformed_input_batch(self, x: torch.Tensor, transforms: List[partial]) -> torch.Tensor:
         """Loop through a list of (invertible) transforms, apply them to input $x, store
         in a list then batch and return.
 
@@ -227,9 +217,7 @@ class HighResDV2(nn.Module):
         return img_batch
 
     @torch.no_grad()
-    def invert_transforms(
-        self, feature_batch: torch.Tensor, x: torch.Tensor
-    ) -> torch.Tensor:
+    def invert_transforms(self, feature_batch: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """For each flat Dv2 features of our transformed imgs in $feature_batch, loop through,
         make them spatial again by reshaping, permuting and resizing, then perform the
         corresponding inverse transform and add to our summand variable. Finally we divide by
@@ -313,9 +301,7 @@ class HighResDV2(nn.Module):
         return upsampled_features
 
     @torch.no_grad()
-    def forward_sequential(
-        self, x: torch.Tensor, attn_choice: AttentionOptions = "none"
-    ) -> torch.Tensor:
+    def forward_sequential(self, x: torch.Tensor, attn_choice: AttentionOptions = "none") -> torch.Tensor:
         """Perform transform -> featurise -> upscale -> inverse -> average forward pass
         sequentially, performing more calls to DINOv2 but reducing the memory overhead.
 
@@ -380,16 +366,13 @@ class HighResDV2(nn.Module):
 
 # from FeatUp: https://github.com/mhamilton723/FeatUp/blob/main/featup/util.py
 class TorchPCA(object):
-
     def __init__(self, n_components):
         self.n_components = n_components
 
     def fit(self, X):
         self.mean_ = X.mean(dim=0)
         unbiased = X - self.mean_.unsqueeze(0)
-        U, S, V = torch.pca_lowrank(
-            unbiased, q=self.n_components, center=False, niter=4
-        )
+        U, S, V = torch.pca_lowrank(unbiased, q=self.n_components, center=False, niter=4)
         self.components_ = V.T
         self.singular_values_ = S
         return self
