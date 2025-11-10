@@ -271,7 +271,11 @@ def get_featuriser_classifier(
         # is the problem the Rf or the weka?
         # crf really does kill the small phases (i.e organelles)
         return Hybrid(send_queue, recv_queue, "dinov2_vits14_reg", trs)
+    elif name == "hybrid-b":
+        return Hybrid(send_queue, recv_queue, "dinov2_vitb14_reg", trs)
     elif name == "bilinear":
         return DeepFeaturesModel(send_queue, recv_queue, "dinov2_vits14_reg", trs, bilinear=True)
+    elif name == "DINOv2-B-14":
+        return DeepFeaturesModel(send_queue, recv_queue, "dinov2_vitb14_reg", trs)
     else:
         return WekaFeaturesModel(send_queue, recv_queue)
