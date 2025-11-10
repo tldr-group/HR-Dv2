@@ -91,7 +91,7 @@ def main_loop(
     crf: bool = False,
     noise_params: tuple[bool, float] = (False, 0),
 ) -> None:
-    model = get_featuriser_classifier(model_name, Queue(2), Queue(2), "both")
+    model = get_featuriser_classifier(model_name, Queue(2), Queue(2), "shift")
     load_model_or_train_with_noise(model, model_path, noise_params)
     # model.load_model(model_path)
 
@@ -149,7 +149,7 @@ def main_loop(
     print(f"{prefix}: {jac.compute()} +/- {np.std(vals)}")
 
 
-main_loop(None, "bilinear", "", True, True)
+main_loop(None, "hybrid-b", "", True, True)
 
 
 # noise_vals = [
@@ -396,5 +396,17 @@ random_forest, 16: : 0.40712738037109375
 """ ABLATIONS
 Dv2, no shift - 0.7915034294128418
 DINO, no shift - 0.7446209192276001
+
+
+Dv2-B, no shift: : 0.7928658127784729 +/- 0.12919658149339303
+Dv2-B, shift: 0.8193546533584595 +/- 0.12412301504464937
+
+Dv2-B, no shift, +CRF: 0.831086277961731 +/- 0.1301004764680329
+Dv2-B, shift, +CRF: 0.8543292284011841 +/- 0.12298823084436393
+
+
+Dv2-B, shift, hybrid: 0.8132352828979492 +/- 0.1260818511917265
+Dv2-B, shift, hybrid + CRF: 0.8517426252365112 +/- 0.12220711454397919
+
 
 """
