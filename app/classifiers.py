@@ -260,6 +260,8 @@ def get_featuriser_classifier(
 ) -> Model:
     if name == "DINOv2-S-14":
         return DeepFeaturesModel(send_queue, recv_queue, "dinov2_vits14_reg", trs)
+    elif name == "DINO-S-16":
+        return DeepFeaturesModel(send_queue, recv_queue, "dino_vits16", trs)
     elif name == "DINO-S-8":
         return DeepFeaturesModel(send_queue, recv_queue, "dino_vits8", trs)
     elif name == "FeatUp":

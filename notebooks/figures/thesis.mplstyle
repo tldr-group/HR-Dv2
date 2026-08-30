@@ -1,0 +1,52 @@
+# use 7 inches for full width, 3.5 for half-width
+# use 2.3 for one row's height
+# i.e figsize=(7, 2.3)
+
+# Typography
+text.usetex: True
+font.family: serif
+
+
+font.size: 9
+
+axes.labelsize: 9
+axes.titlesize: 9
+
+xtick.labelsize: 8
+ytick.labelsize: 8
+
+legend.fontsize: 8
+
+# Figure sizing
+figure.figsize: 3.35, 2.3
+figure.dpi: 300
+
+# Lines
+lines.linewidth: 1.2
+lines.markersize: 4
+
+axes.linewidth: 0.8
+
+# Ticks
+xtick.major.width: 0.8
+ytick.major.width: 0.8
+
+xtick.major.size: 3
+ytick.major.size: 3
+
+xtick.direction: in
+ytick.direction: in
+
+# Legend
+legend.frameon: True
+
+# Grid
+axes.grid: False
+
+# Export
+savefig.bbox: tight
+savefig.pad_inches: 0.02
+
+pdf.fonttype: 42
+ps.fonttype: 42
+svg.fonttype: none

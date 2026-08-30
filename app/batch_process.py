@@ -25,6 +25,7 @@ from skimage.util import random_noise
 np.random.seed(1001)
 torch.manual_seed(1001)
 
+torch.cuda.empty_cache()
 
 default_mapping = [(255, 0), (170, 1), (85, 2)]
 
@@ -91,7 +92,7 @@ def main_loop(
     crf: bool = False,
     noise_params: tuple[bool, float] = (False, 0),
 ) -> None:
-    model = get_featuriser_classifier(model_name, Queue(2), Queue(2), "shift")
+    model = get_featuriser_classifier(model_name, Queue(2), Queue(2), "both")
     load_model_or_train_with_noise(model, model_path, noise_params)
     # model.load_model(model_path)
 
@@ -407,6 +408,20 @@ Dv2-B, shift, +CRF: 0.8543292284011841 +/- 0.12298823084436393
 
 Dv2-B, shift, hybrid: 0.8132352828979492 +/- 0.1260818511917265
 Dv2-B, shift, hybrid + CRF: 0.8517426252365112 +/- 0.12220711454397919
+
+D-S-16, no shift: : 0.7616199254989624 +/- 0.12401496529017611
+D-S-16, shift: 0.7761068344116211 +/- 0.12895907770190806
+
+
+Hybrid, Dv2-S, shift + flips: 0.8271666765213013 +/- 0.126117700385737
+Hybrid, Dv2-B, shift + flips: 0.8271666765213013 +/- 0.126117700385737
+
+Hybrid, Dv2-S, shift + flips, +CRF: 0.8587712049484253 +/- 0.1204884189447225
+Hybrid, Dv2-B, shift + flips, +CRF: 0.8695992231369019 +/- 0.11784235432640003
+
+
+Dv2-S-14, shift + flips: 0.8234779834747314 +/- 0.12222689054321291
+
 
 
 """
